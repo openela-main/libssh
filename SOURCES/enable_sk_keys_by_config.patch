@@ -1,0 +1,105 @@
+diff --git a/src/kex.c b/src/kex.c
+index 1155b9c7..528cb182 100644
+--- a/src/kex.c
++++ b/src/kex.c
+@@ -101,12 +101,19 @@
+ 
+ #ifdef HAVE_ECDH
+ #define ECDH "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,"
+-#define EC_HOSTKEYS "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256,"
+-#define EC_PUBLIC_KEY_ALGORITHMS "ecdsa-sha2-nistp521-cert-v01@openssh.com," \
++#define EC_HOSTKEYS "ecdsa-sha2-nistp521," \
++                    "ecdsa-sha2-nistp384," \
++                    "ecdsa-sha2-nistp256,"
++#define EC_SK_HOSTKEYS "sk-ecdsa-sha2-nistp256@openssh.com,"
++#define EC_FIPS_PUBLIC_KEY_ALGOS "ecdsa-sha2-nistp521-cert-v01@openssh.com," \
+                                  "ecdsa-sha2-nistp384-cert-v01@openssh.com," \
+                                  "ecdsa-sha2-nistp256-cert-v01@openssh.com,"
++#define EC_PUBLIC_KEY_ALGORITHMS EC_FIPS_PUBLIC_KEY_ALGOS \
++                                 "sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,"
+ #else
+ #define EC_HOSTKEYS ""
++#define EC_SK_HOSTKEYS ""
++#define EC_FIPS_PUBLIC_KEY_ALGOS ""
+ #define EC_PUBLIC_KEY_ALGORITHMS ""
+ #define ECDH ""
+ #endif /* HAVE_ECDH */
+@@ -127,16 +134,21 @@
+ 
+ #define HOSTKEYS "ssh-ed25519," \
+                  EC_HOSTKEYS \
++                 "sk-ssh-ed25519@openssh.com," \
++                 EC_SK_HOSTKEYS \
+                  "rsa-sha2-512," \
+                  "rsa-sha2-256," \
+                  "ssh-rsa" \
+                  DSA_HOSTKEYS
+ #define DEFAULT_HOSTKEYS "ssh-ed25519," \
+                          EC_HOSTKEYS \
++                         "sk-ssh-ed25519@openssh.com," \
++                         EC_SK_HOSTKEYS \
+                          "rsa-sha2-512," \
+                          "rsa-sha2-256"
+ 
+ #define PUBLIC_KEY_ALGORITHMS "ssh-ed25519-cert-v01@openssh.com," \
++                              "sk-ssh-ed25519-cert-v01@openssh.com," \
+                               EC_PUBLIC_KEY_ALGORITHMS \
+                               "rsa-sha2-512-cert-v01@openssh.com," \
+                               "rsa-sha2-256-cert-v01@openssh.com," \
+@@ -186,7 +198,7 @@
+                               "rsa-sha2-512," \
+                               "rsa-sha2-256"
+ 
+-#define FIPS_ALLOWED_PUBLIC_KEY_ALGORITHMS EC_PUBLIC_KEY_ALGORITHMS \
++#define FIPS_ALLOWED_PUBLIC_KEY_ALGORITHMS EC_FIPS_PUBLIC_KEY_ALGOS \
+                                            "rsa-sha2-512-cert-v01@openssh.com," \
+                                            "rsa-sha2-256-cert-v01@openssh.com," \
+                                            FIPS_ALLOWED_HOSTKEYS
+diff --git a/src/knownhosts.c b/src/knownhosts.c
+index 1f52dedc..94618fe2 100644
+--- a/src/knownhosts.c
++++ b/src/knownhosts.c
+@@ -480,6 +480,8 @@ static const char *ssh_known_host_sigs_from_hostkey_type(enum ssh_keytypes_e typ
+         return "rsa-sha2-512,rsa-sha2-256,ssh-rsa";
+     case SSH_KEYTYPE_ED25519:
+         return "ssh-ed25519";
++    case SSH_KEYTYPE_SK_ED25519:
++        return "sk-ssh-ed25519@openssh.com";
+ #ifdef HAVE_DSA
+     case SSH_KEYTYPE_DSS:
+         return "ssh-dss";
+@@ -494,6 +496,8 @@ static const char *ssh_known_host_sigs_from_hostkey_type(enum ssh_keytypes_e typ
+         return "ecdsa-sha2-nistp384";
+     case SSH_KEYTYPE_ECDSA_P521:
+         return "ecdsa-sha2-nistp521";
++    case SSH_KEYTYPE_SK_ECDSA:
++        return "sk-ecdsa-sha2-nistp256@openssh.com";
+ #else
+     case SSH_KEYTYPE_ECDSA_P256:
+     case SSH_KEYTYPE_ECDSA_P384:
+diff --git a/tests/unittests/torture_knownhosts_parsing.c b/tests/unittests/torture_knownhosts_parsing.c
+index fffa8296..7fd21f05 100644
+--- a/tests/unittests/torture_knownhosts_parsing.c
++++ b/tests/unittests/torture_knownhosts_parsing.c
+@@ -634,7 +634,9 @@ static void torture_knownhosts_algorithms(void **state)
+     bool process_config = false;
+     const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,"
+                          "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,"
+-                         "ecdsa-sha2-nistp256";
++                         "ecdsa-sha2-nistp256,"
++                         "sk-ssh-ed25519@openssh.com,"
++                         "sk-ecdsa-sha2-nistp256@openssh.com";
+     const char *expect_fips = "rsa-sha2-512,rsa-sha2-256,ecdsa-sha2-nistp521,"
+                               "ecdsa-sha2-nistp384,ecdsa-sha2-nistp256";
+ 
+@@ -669,7 +671,9 @@ static void torture_knownhosts_algorithms_global(void **state)
+     bool process_config = false;
+     const char *expect = "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,"
+                          "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,"
+-                         "ecdsa-sha2-nistp256";
++                         "ecdsa-sha2-nistp256,"
++                         "sk-ssh-ed25519@openssh.com,"
++                         "sk-ecdsa-sha2-nistp256@openssh.com";
+     const char *expect_fips = "rsa-sha2-512,rsa-sha2-256,ecdsa-sha2-nistp521,"
+                               "ecdsa-sha2-nistp384,ecdsa-sha2-nistp256";
+ 

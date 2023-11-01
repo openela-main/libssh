@@ -1,0 +1,842 @@
+From 11c0d687a081fe64501e21c95def7f893611d029 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Wed, 16 Nov 2022 10:40:38 +0100
+Subject: [PATCH 1/5] Add a placehohlder for non-expanded identities
+
+Expanding a string twice could lead to unwanted behaviour.
+This solution creates a ssh_list (`opts.identites_non_exp`) to store the strings
+before expansion and by using ssh_apply it moves the string to the
+`opts.identities`. This way the expanded strings are separated.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ include/libssh/session.h |  1 +
+ src/options.c            | 86 +++++++++++++++++++++++++---------------
+ src/session.c            | 23 +++++++++--
+ 3 files changed, 75 insertions(+), 35 deletions(-)
+
+diff --git a/include/libssh/session.h b/include/libssh/session.h
+index d3e5787c..e22b0d67 100644
+--- a/include/libssh/session.h
++++ b/include/libssh/session.h
+@@ -209,6 +209,7 @@ struct ssh_session_struct {
+ #endif
+     struct {
+         struct ssh_list *identity;
++        struct ssh_list *identity_non_exp;
+         char *username;
+         char *host;
+         char *bindaddr; /* bind the client to an ip addr */
+diff --git a/src/options.c b/src/options.c
+index 56e09c65..bb085384 100644
+--- a/src/options.c
++++ b/src/options.c
+@@ -52,7 +52,7 @@
+  * @brief Duplicate the options of a session structure.
+  *
+  * If you make several sessions with the same options this is useful. You
+- * cannot use twice the same option structure in ssh_session_connect.
++ * cannot use twice the same option structure in ssh_connect.
+  *
+  * @param src           The session to use to copy the options.
+  *
+@@ -61,13 +61,14 @@
+  *
+  * @returns             0 on success, -1 on error with errno set.
+  *
+- * @see ssh_session_connect()
++ * @see ssh_connect()
+  * @see ssh_free()
+  */
+ int ssh_options_copy(ssh_session src, ssh_session *dest)
+ {
+     ssh_session new;
+     struct ssh_iterator *it = NULL;
++    struct ssh_list *list = NULL;
+     char *id = NULL;
+     int i;
+
+@@ -105,14 +106,15 @@ int ssh_options_copy(ssh_session src, ssh_session *dest)
+     }
+
+     /* Remove the default identities */
+-    for (id = ssh_list_pop_head(char *, new->opts.identity);
++    for (id = ssh_list_pop_head(char *, new->opts.identity_non_exp);
+          id != NULL;
+-         id = ssh_list_pop_head(char *, new->opts.identity)) {
++         id = ssh_list_pop_head(char *, new->opts.identity_non_exp)) {
+         SAFE_FREE(id);
+     }
+     /* Copy the new identities from the source list */
+-    if (src->opts.identity != NULL) {
+-        it = ssh_list_get_iterator(src->opts.identity);
++    list = new->opts.identity_non_exp;
++    it = ssh_list_get_iterator(src->opts.identity_non_exp);
++    for (i = 0; i < 2; i++) {
+         while (it) {
+             int rc;
+
+@@ -122,7 +124,7 @@ int ssh_options_copy(ssh_session src, ssh_session *dest)
+                 return -1;
+             }
+
+-            rc = ssh_list_append(new->opts.identity, id);
++            rc = ssh_list_append(list, id);
+             if (rc < 0) {
+                 free(id);
+                 ssh_free(new);
+@@ -130,6 +132,10 @@ int ssh_options_copy(ssh_session src, ssh_session *dest)
+             }
+             it = it->next;
+         }
++
++        /* copy the identity list if there is any already */
++        list = new->opts.identity;
++        it = ssh_list_get_iterator(src->opts.identity);
+     }
+
+     if (src->opts.sshdir != NULL) {
+@@ -331,7 +337,7 @@ int ssh_options_set_algo(ssh_session session,
+  *                Add a new identity file (const char *, format string) to
+  *                the identity list.\n
+  *                \n
+- *                By default identity, id_dsa and id_rsa are checked.\n
++ *                By default id_rsa, id_ecdsa and id_ed25519 files are used.\n
+  *                \n
+  *                The identity used to authenticate with public key will be
+  *                prepended to the list.
+@@ -700,7 +706,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+             if (q == NULL) {
+                 return -1;
+             }
+-            rc = ssh_list_prepend(session->opts.identity, q);
++            if (session->opts.exp_flags & SSH_OPT_EXP_FLAG_IDENTITY) {
++                rc = ssh_list_append(session->opts.identity_non_exp, q);
++            } else {
++                rc = ssh_list_prepend(session->opts.identity_non_exp, q);
++            }
+             if (rc < 0) {
+                 free(q);
+                 return -1;
+@@ -1202,7 +1212,7 @@ int ssh_options_get_port(ssh_session session, unsigned int* port_target) {
+  *              - SSH_OPTIONS_IDENTITY:
+  *                Get the first identity file name (const char *).\n
+  *                \n
+- *                By default identity, id_dsa and id_rsa are checked.
++ *                By default id_rsa, id_ecdsa and id_ed25519 files are used.
+  *
+  *              - SSH_OPTIONS_PROXYCOMMAND:
+  *                Get the proxycommand necessary to log into the
+@@ -1246,7 +1256,11 @@ int ssh_options_get(ssh_session session, enum ssh_options_e type, char** value)
+             break;
+         }
+         case SSH_OPTIONS_IDENTITY: {
+-            struct ssh_iterator *it = ssh_list_get_iterator(session->opts.identity);
++            struct ssh_iterator *it;
++            it = ssh_list_get_iterator(session->opts.identity);
++            if (it == NULL) {
++                it = ssh_list_get_iterator(session->opts.identity_non_exp);
++            }
+             if (it == NULL) {
+                 return SSH_ERROR;
+             }
+@@ -1541,7 +1555,6 @@ out:
+
+ int ssh_options_apply(ssh_session session)
+ {
+-    struct ssh_iterator *it;
+     char *tmp;
+     int rc;
+
+@@ -1586,15 +1599,17 @@ int ssh_options_apply(ssh_session session)
+         size_t plen = strlen(session->opts.ProxyCommand) +
+                       5 /* strlen("exec ") */;
+
+-        p = malloc(plen + 1 /* \0 */);
+-        if (p == NULL) {
+-            return -1;
+-        }
++        if (strncmp(session->opts.ProxyCommand, "exec ", 5) != 0) {
++            p = malloc(plen + 1 /* \0 */);
++            if (p == NULL) {
++                return -1;
++            }
+
+-        rc = snprintf(p, plen + 1, "exec %s", session->opts.ProxyCommand);
+-        if ((size_t)rc != plen) {
+-            free(p);
+-            return -1;
++            rc = snprintf(p, plen + 1, "exec %s", session->opts.ProxyCommand);
++            if ((size_t)rc != plen) {
++                free(p);
++                return -1;
++            }
+         }
+
+         tmp = ssh_path_expand_escape(session, p);
+@@ -1606,24 +1621,33 @@ int ssh_options_apply(ssh_session session)
+         session->opts.ProxyCommand = tmp;
+     }
+
+-    for (it = ssh_list_get_iterator(session->opts.identity);
+-         it != NULL;
+-         it = it->next) {
+-        char *id = (char *) it->data;
+-        if (strncmp(id, "pkcs11:", 6) == 0) {
++    for (tmp = ssh_list_pop_head(char *, session->opts.identity_non_exp);
++         tmp != NULL;
++         tmp = ssh_list_pop_head(char *, session->opts.identity_non_exp)) {
++        char *id = tmp;
++        if (strncmp(id, "pkcs11:", 6) != 0) {
+             /* PKCS#11 URIs are using percent-encoding so we can not mix
+              * it with ssh expansion of ssh escape characters.
+-             * Skip these identities now, before we will have PKCS#11 support
+              */
+-             continue;
++            tmp = ssh_path_expand_escape(session, id);
++            if (tmp == NULL) {
++                return -1;
++            }
++            free(id);
+         }
+-        tmp = ssh_path_expand_escape(session, id);
+-        if (tmp == NULL) {
++
++        /* use append to keep the order at first call and use prepend
++         * to put anything that comes on the nth calls to the beginning */
++        if (session->opts.exp_flags & SSH_OPT_EXP_FLAG_IDENTITY) {
++            rc = ssh_list_prepend(session->opts.identity, tmp);
++        } else {
++            rc = ssh_list_append(session->opts.identity, tmp);
++        }
++        if (rc != SSH_OK) {
+             return -1;
+         }
+-        free(id);
+-        it->data = tmp;
+     }
++    session->opts.exp_flags |= SSH_OPT_EXP_FLAG_IDENTITY;
+
+     return 0;
+ }
+diff --git a/src/session.c b/src/session.c
+index 64e54957..34a492e4 100644
+--- a/src/session.c
++++ b/src/session.c
+@@ -118,13 +118,17 @@ ssh_session ssh_new(void)
+     if (session->opts.identity == NULL) {
+         goto err;
+     }
++    session->opts.identity_non_exp = ssh_list_new();
++    if (session->opts.identity_non_exp == NULL) {
++        goto err;
++    }
+
+     id = strdup("%d/id_ed25519");
+     if (id == NULL) {
+         goto err;
+     }
+
+-    rc = ssh_list_append(session->opts.identity, id);
++    rc = ssh_list_append(session->opts.identity_non_exp, id);
+     if (rc == SSH_ERROR) {
+         goto err;
+     }
+@@ -134,7 +138,7 @@ ssh_session ssh_new(void)
+     if (id == NULL) {
+         goto err;
+     }
+-    rc = ssh_list_append(session->opts.identity, id);
++    rc = ssh_list_append(session->opts.identity_non_exp, id);
+     if (rc == SSH_ERROR) {
+         goto err;
+     }
+@@ -144,7 +148,7 @@ ssh_session ssh_new(void)
+     if (id == NULL) {
+         goto err;
+     }
+-    rc = ssh_list_append(session->opts.identity, id);
++    rc = ssh_list_append(session->opts.identity_non_exp, id);
+     if (rc == SSH_ERROR) {
+         goto err;
+     }
+@@ -154,7 +158,7 @@ ssh_session ssh_new(void)
+     if (id == NULL) {
+         goto err;
+     }
+-    rc = ssh_list_append(session->opts.identity, id);
++    rc = ssh_list_append(session->opts.identity_non_exp, id);
+     if (rc == SSH_ERROR) {
+         goto err;
+     }
+@@ -284,6 +288,17 @@ void ssh_free(ssh_session session)
+       ssh_list_free(session->opts.identity);
+   }
+
++  if (session->opts.identity_non_exp) {
++      char *id;
++
++      for (id = ssh_list_pop_head(char *, session->opts.identity_non_exp);
++           id != NULL;
++           id = ssh_list_pop_head(char *, session->opts.identity_non_exp)) {
++          SAFE_FREE(id);
++      }
++      ssh_list_free(session->opts.identity_non_exp);
++  }
++
+     while ((b = ssh_list_pop_head(struct ssh_buffer_struct *,
+                                   session->out_queue)) != NULL) {
+         SSH_BUFFER_FREE(b);
+--
+2.38.1
+
+
+From 4cb84b99fdb1ffd26c0241f5809e4f67ddd407c6 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Wed, 16 Nov 2022 11:03:30 +0100
+Subject: [PATCH 2/5] tests: Use opts.identites_non_exp not opts.identities
+
+The configuration of identities are first saved to `opts.identities_non_exp`,
+then moved to `opts.identities` after calling ssh_options_apply and expanding
+the identity strings. These tests are testing against the proper configuration
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/client/torture_auth_pkcs11.c |  2 +-
+ tests/unittests/torture_config.c   |  3 ++-
+ tests/unittests/torture_options.c  | 14 +++++++-------
+ 3 files changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/tests/client/torture_auth_pkcs11.c b/tests/client/torture_auth_pkcs11.c
+index ee97bff4..e75fea0e 100644
+--- a/tests/client/torture_auth_pkcs11.c
++++ b/tests/client/torture_auth_pkcs11.c
+@@ -196,7 +196,7 @@ static void torture_auth_autopubkey(void **state, const char *obj_name, const ch
+
+     rc = ssh_options_set(session, SSH_OPTIONS_IDENTITY, priv_uri);
+     assert_int_equal(rc, SSH_OK);
+-    assert_string_equal(session->opts.identity->root->data, priv_uri);
++    assert_string_equal(session->opts.identity_non_exp->root->data, priv_uri);
+
+     rc = ssh_connect(session);
+     assert_int_equal(rc, SSH_OK);
+diff --git a/tests/unittests/torture_config.c b/tests/unittests/torture_config.c
+index 354adc2f..100e68f6 100644
+--- a/tests/unittests/torture_config.c
++++ b/tests/unittests/torture_config.c
+@@ -2078,7 +2078,8 @@ static void torture_config_identity(void **state)
+
+     _parse_config(session, NULL, LIBSSH_TESTCONFIG_STRING13, SSH_OK);
+
+-    it = ssh_list_get_iterator(session->opts.identity);
++    /* The identities are first added to this temporary list before expanding */
++    it = ssh_list_get_iterator(session->opts.identity_non_exp);
+     assert_non_null(it);
+     id = it->data;
+     /* The identities are prepended to the list so we start with second one */
+diff --git a/tests/unittests/torture_options.c b/tests/unittests/torture_options.c
+index dc4df383..3be2de8a 100644
+--- a/tests/unittests/torture_options.c
++++ b/tests/unittests/torture_options.c
+@@ -406,12 +406,12 @@ static void torture_options_set_identity(void **state) {
+
+     rc = ssh_options_set(session, SSH_OPTIONS_ADD_IDENTITY, "identity1");
+     assert_true(rc == 0);
+-    assert_string_equal(session->opts.identity->root->data, "identity1");
++    assert_string_equal(session->opts.identity_non_exp->root->data, "identity1");
+
+     rc = ssh_options_set(session, SSH_OPTIONS_IDENTITY, "identity2");
+     assert_true(rc == 0);
+-    assert_string_equal(session->opts.identity->root->data, "identity2");
+-    assert_string_equal(session->opts.identity->root->next->data, "identity1");
++    assert_string_equal(session->opts.identity_non_exp->root->data, "identity2");
++    assert_string_equal(session->opts.identity_non_exp->root->next->data, "identity1");
+ }
+
+ static void torture_options_get_identity(void **state) {
+@@ -429,7 +429,7 @@ static void torture_options_get_identity(void **state) {
+
+     rc = ssh_options_set(session, SSH_OPTIONS_IDENTITY, "identity2");
+     assert_int_equal(rc, SSH_OK);
+-    assert_string_equal(session->opts.identity->root->data, "identity2");
++    assert_string_equal(session->opts.identity_non_exp->root->data, "identity2");
+     rc = ssh_options_get(session, SSH_OPTIONS_IDENTITY, &identity);
+     assert_int_equal(rc, SSH_OK);
+     assert_non_null(identity);
+@@ -867,9 +867,9 @@ static void torture_options_copy(void **state)
+     assert_non_null(new);
+
+     /* Check the identities match */
+-    it = ssh_list_get_iterator(session->opts.identity);
++    it = ssh_list_get_iterator(session->opts.identity_non_exp);
+     assert_non_null(it);
+-    it2 = ssh_list_get_iterator(new->opts.identity);
++    it2 = ssh_list_get_iterator(new->opts.identity_non_exp);
+     assert_non_null(it2);
+     while (it != NULL && it2 != NULL) {
+         assert_string_equal(it->data, it2->data);
+@@ -956,7 +956,7 @@ static void torture_options_getopt(void **state)
+                         "aes128-ctr");
+     assert_string_equal(session->opts.wanted_methods[SSH_CRYPT_S_C],
+                         "aes128-ctr");
+-    assert_string_equal(session->opts.identity->root->data, "id_rsa");
++    assert_string_equal(session->opts.identity_non_exp->root->data, "id_rsa");
+ #ifdef WITH_ZLIB
+     assert_string_equal(session->opts.wanted_methods[SSH_COMP_C_S],
+                         "zlib@openssh.com,zlib,none");
+--
+2.38.1
+
+
+From cd30217c9032419ebcf722c0bfc6b5ebfa3518d0 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Wed, 16 Nov 2022 16:51:02 +0100
+Subject: [PATCH 3/5] Add flags for escape expand operation
+
+Calling `ssh_options_apply` more times can result in an unwanted behaviour of
+expanding the escape characters more times. Adding flags to check if the
+expansion was already done on the current string variables.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ include/libssh/session.h |  7 ++++
+ src/options.c            | 91 ++++++++++++++++++++++++----------------
+ src/session.c            |  2 +
+ 3 files changed, 63 insertions(+), 37 deletions(-)
+
+diff --git a/include/libssh/session.h b/include/libssh/session.h
+index e22b0d67..cf219c2a 100644
+--- a/include/libssh/session.h
++++ b/include/libssh/session.h
+@@ -93,6 +93,12 @@ enum ssh_pending_call_e {
+ #define SSH_OPT_FLAG_KBDINT_AUTH 0x4
+ #define SSH_OPT_FLAG_GSSAPI_AUTH 0x8
+
++/* Escape expansion of different variables */
++#define SSH_OPT_EXP_FLAG_KNOWNHOSTS 0x1
++#define SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS 0x2
++#define SSH_OPT_EXP_FLAG_PROXYCOMMAND 0x4
++#define SSH_OPT_EXP_FLAG_IDENTITY 0x8
++
+ /* extensions flags */
+ /* negotiation enabled */
+ #define SSH_EXT_NEGOTIATION     0x01
+@@ -232,6 +238,7 @@ struct ssh_session_struct {
+         char *gss_client_identity;
+         int gss_delegate_creds;
+         int flags;
++        int exp_flags;
+         int nodelay;
+         bool config_processed;
+         uint8_t options_seen[SOC_MAX];
+diff --git a/src/options.c b/src/options.c
+index bb085384..c566244b 100644
+--- a/src/options.c
++++ b/src/options.c
+@@ -730,6 +730,7 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                     ssh_set_error_oom(session);
+                     return -1;
+                 }
++                session->opts.exp_flags &= ~SSH_OPT_EXP_FLAG_KNOWNHOSTS;
+             }
+             break;
+         case SSH_OPTIONS_GLOBAL_KNOWNHOSTS:
+@@ -751,6 +752,7 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                     ssh_set_error_oom(session);
+                     return -1;
+                 }
++                session->opts.exp_flags &= ~SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS;
+             }
+             break;
+         case SSH_OPTIONS_TIMEOUT:
+@@ -1014,6 +1016,7 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                         return -1;
+                     }
+                     session->opts.ProxyCommand = q;
++                    session->opts.exp_flags &= ~SSH_OPT_EXP_FLAG_PROXYCOMMAND;
+                 }
+             }
+             break;
+@@ -1572,53 +1575,67 @@ int ssh_options_apply(ssh_session session)
+         }
+     }
+
+-    if (session->opts.knownhosts == NULL) {
+-        tmp = ssh_path_expand_escape(session, "%d/known_hosts");
+-    } else {
+-        tmp = ssh_path_expand_escape(session, session->opts.knownhosts);
+-    }
+-    if (tmp == NULL) {
+-        return -1;
++    if ((session->opts.exp_flags & SSH_OPT_EXP_FLAG_KNOWNHOSTS) == 0) {
++        if (session->opts.knownhosts == NULL) {
++            tmp = ssh_path_expand_escape(session, "%d/known_hosts");
++        } else {
++            tmp = ssh_path_expand_escape(session, session->opts.knownhosts);
++        }
++        if (tmp == NULL) {
++            return -1;
++        }
++        free(session->opts.knownhosts);
++        session->opts.knownhosts = tmp;
++        session->opts.exp_flags |= SSH_OPT_EXP_FLAG_KNOWNHOSTS;
+     }
+-    free(session->opts.knownhosts);
+-    session->opts.knownhosts = tmp;
+
+-    if (session->opts.global_knownhosts == NULL) {
+-        tmp = strdup("/etc/ssh/ssh_known_hosts");
+-    } else {
+-        tmp = ssh_path_expand_escape(session, session->opts.global_knownhosts);
+-    }
+-    if (tmp == NULL) {
+-        return -1;
++    if ((session->opts.exp_flags & SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS) == 0) {
++        if (session->opts.global_knownhosts == NULL) {
++            tmp = strdup("/etc/ssh/ssh_known_hosts");
++        } else {
++            tmp = ssh_path_expand_escape(session,
++                                         session->opts.global_knownhosts);
++        }
++        if (tmp == NULL) {
++            return -1;
++        }
++        free(session->opts.global_knownhosts);
++        session->opts.global_knownhosts = tmp;
++        session->opts.exp_flags |= SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS;
+     }
+-    free(session->opts.global_knownhosts);
+-    session->opts.global_knownhosts = tmp;
+
+-    if (session->opts.ProxyCommand != NULL) {
+-        char *p = NULL;
+-        size_t plen = strlen(session->opts.ProxyCommand) +
+-                      5 /* strlen("exec ") */;
+
+-        if (strncmp(session->opts.ProxyCommand, "exec ", 5) != 0) {
+-            p = malloc(plen + 1 /* \0 */);
+-            if (p == NULL) {
+-                return -1;
+-            }
++    if ((session->opts.exp_flags & SSH_OPT_EXP_FLAG_PROXYCOMMAND) == 0) {
++        if (session->opts.ProxyCommand != NULL) {
++            char *p = NULL;
++            size_t plen = strlen(session->opts.ProxyCommand) +
++                          5 /* strlen("exec ") */;
++
++            if (strncmp(session->opts.ProxyCommand, "exec ", 5) != 0) {
++                p = malloc(plen + 1 /* \0 */);
++                if (p == NULL) {
++                    return -1;
++                }
+
+-            rc = snprintf(p, plen + 1, "exec %s", session->opts.ProxyCommand);
+-            if ((size_t)rc != plen) {
++                rc = snprintf(p, plen + 1, "exec %s", session->opts.ProxyCommand);
++                if ((size_t)rc != plen) {
++                    free(p);
++                    return -1;
++                }
++                tmp = ssh_path_expand_escape(session, p);
+                 free(p);
+-                return -1;
++            } else {
++                tmp = ssh_path_expand_escape(session,
++                                             session->opts.ProxyCommand);
+             }
+-        }
+
+-        tmp = ssh_path_expand_escape(session, p);
+-        free(p);
+-        if (tmp == NULL) {
+-            return -1;
++            if (tmp == NULL) {
++                return -1;
++            }
++            free(session->opts.ProxyCommand);
++            session->opts.ProxyCommand = tmp;
++            session->opts.exp_flags |= SSH_OPT_EXP_FLAG_PROXYCOMMAND;
+         }
+-        free(session->opts.ProxyCommand);
+-        session->opts.ProxyCommand = tmp;
+     }
+
+     for (tmp = ssh_list_pop_head(char *, session->opts.identity_non_exp);
+diff --git a/src/session.c b/src/session.c
+index 34a492e4..06f6a26f 100644
+--- a/src/session.c
++++ b/src/session.c
+@@ -114,6 +114,8 @@ ssh_session ssh_new(void)
+                           SSH_OPT_FLAG_KBDINT_AUTH |
+                           SSH_OPT_FLAG_GSSAPI_AUTH;
+
++    session->opts.exp_flags = 0;
++
+     session->opts.identity = ssh_list_new();
+     if (session->opts.identity == NULL) {
+         goto err;
+--
+2.38.1
+
+
+From ed58082f9706f2ab3bdeca24f632356b9bc325e6 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Wed, 16 Nov 2022 17:17:14 +0100
+Subject: [PATCH 4/5] torture_options.c: Add identity test for ssh_options_copy
+
+Test if the ssh_options_apply is called on session before ssh_options_copy,
+then `opts.identity` ssh_list will be copied
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/unittests/torture_options.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/tests/unittests/torture_options.c b/tests/unittests/torture_options.c
+index 3be2de8a..907cc8df 100644
+--- a/tests/unittests/torture_options.c
++++ b/tests/unittests/torture_options.c
+@@ -918,6 +918,34 @@ static void torture_options_copy(void **state)
+                         sizeof(session->opts.options_seen));
+
+     ssh_free(new);
++
++    /* test if ssh_options_apply was called before ssh_options_copy
++     * the opts.identity list gets copied (percent expanded list) */
++    rv = ssh_options_apply(session);
++    assert_ssh_return_code(session, rv);
++
++    rv = ssh_options_copy(session, &new);
++    assert_ssh_return_code(session, rv);
++    assert_non_null(new);
++
++    it = ssh_list_get_iterator(session->opts.identity_non_exp);
++    assert_null(it);
++    it2 = ssh_list_get_iterator(new->opts.identity_non_exp);
++    assert_null(it2);
++
++    it = ssh_list_get_iterator(session->opts.identity);
++    assert_non_null(it);
++    it2 = ssh_list_get_iterator(new->opts.identity);
++    assert_non_null(it2);
++    while (it != NULL && it2 != NULL) {
++        assert_string_equal(it->data, it2->data);
++        it = it->next;
++        it2 = it2->next;
++    }
++    assert_null(it);
++    assert_null(it2);
++
++    ssh_free(new);
+ }
+
+ #define EXECUTABLE_NAME "test-exec"
+--
+2.38.1
+
+
+From 89dd4a927b946d4df5c48073ca25cd843e0acde0 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Wed, 16 Nov 2022 17:18:49 +0100
+Subject: [PATCH 5/5] torture_options.c: Add test for ssh_options_apply
+
+Test that ssh_options_apply can be called multiple times without expanding
+escape characters more than once. If the options are updated after calling
+ssh_options_apply keep the last options.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/unittests/torture_options.c | 165 ++++++++++++++++++++++++++++++
+ 1 file changed, 165 insertions(+)
+
+diff --git a/tests/unittests/torture_options.c b/tests/unittests/torture_options.c
+index 907cc8df..ea63b45e 100644
+--- a/tests/unittests/torture_options.c
++++ b/tests/unittests/torture_options.c
+@@ -1332,6 +1332,170 @@ static void torture_options_caret_sign(void **state)
+     free(awaited);
+ }
+
++static void torture_options_apply (void **state) {
++    ssh_session session = *state;
++    struct ssh_list *awaited_list = NULL;
++    struct ssh_iterator *it1 = NULL, *it2 = NULL;
++    char *id = NULL;
++    int rc;
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_KNOWNHOSTS,
++                         "%%d/.ssh/known_hosts");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_GLOBAL_KNOWNHOSTS,
++                         "/etc/%%u/libssh/known_hosts");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_PROXYCOMMAND,
++                         "exec echo \"Hello libssh %%d!\"");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_ADD_IDENTITY,
++                         "%%d/do_not_expand");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_apply(session);
++    assert_ssh_return_code(session, rc);
++
++    /* check that the values got expanded */
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_KNOWNHOSTS);
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS);
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_PROXYCOMMAND);
++    assert_true(ssh_list_count(session->opts.identity_non_exp) == 0);
++    assert_true(ssh_list_count(session->opts.identity) > 0);
++
++    /* should not change anything calling it again */
++    rc = ssh_options_apply(session);
++    assert_ssh_return_code(session, rc);
++
++    /* check that the expansion was done only once */
++    assert_string_equal(session->opts.knownhosts, "%d/.ssh/known_hosts");
++    assert_string_equal(session->opts.global_knownhosts,
++                        "/etc/%u/libssh/known_hosts");
++    /* no exec should be added if there already is one */
++    assert_string_equal(session->opts.ProxyCommand,
++                        "exec echo \"Hello libssh %d!\"");
++    assert_string_equal(session->opts.identity->root->data,
++                        "%d/do_not_expand");
++
++    /* apply should keep the freshest setting */
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_KNOWNHOSTS,
++                         "hello there");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_GLOBAL_KNOWNHOSTS,
++                         "lorem ipsum");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_PROXYCOMMAND,
++                         "mission_impossible");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_ADD_IDENTITY,
++                         "007");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_ADD_IDENTITY,
++                         "3");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_ADD_IDENTITY,
++                         "2");
++    assert_ssh_return_code(session, rc);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_ADD_IDENTITY,
++                         "1");
++    assert_ssh_return_code(session, rc);
++
++    /* check that flags show need of escape expansion */
++    assert_false(session->opts.exp_flags & SSH_OPT_EXP_FLAG_KNOWNHOSTS);
++    assert_false(session->opts.exp_flags & SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS);
++    assert_false(session->opts.exp_flags & SSH_OPT_EXP_FLAG_PROXYCOMMAND);
++    assert_false(ssh_list_count(session->opts.identity_non_exp) == 0);
++
++    rc = ssh_options_apply(session);
++    assert_ssh_return_code(session, rc);
++
++    /* check that the values got expanded */
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_KNOWNHOSTS);
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_GLOBAL_KNOWNHOSTS);
++    assert_true(session->opts.exp_flags & SSH_OPT_EXP_FLAG_PROXYCOMMAND);
++    assert_true(ssh_list_count(session->opts.identity_non_exp) == 0);
++
++    assert_string_equal(session->opts.knownhosts, "hello there");
++    assert_string_equal(session->opts.global_knownhosts, "lorem ipsum");
++    /* check that the "exec " was added at the beginning */
++    assert_string_equal(session->opts.ProxyCommand, "exec mission_impossible");
++    assert_string_equal(session->opts.identity->root->data, "1");
++
++    /* check the order of the identity files after double expansion */
++    awaited_list = ssh_list_new();
++    /* append the new data in order */
++    id = strdup("1");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++    id = strdup("2");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++    id = strdup("3");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++    id = strdup("007");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++    id = strdup("%d/do_not_expand");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++    /* append the defaults; this list is copied from ssh_new@src/session.c */
++    id = ssh_path_expand_escape(session, "%d/id_ed25519");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++#ifdef HAVE_ECC
++    id = ssh_path_expand_escape(session, "%d/id_ecdsa");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++#endif
++    id = ssh_path_expand_escape(session, "%d/id_rsa");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++#ifdef HAVE_DSA
++    id = ssh_path_expand_escape(session, "%d/id_dsa");
++    rc = ssh_list_append(awaited_list, id);
++    assert_int_equal(rc, SSH_OK);
++#endif
++
++    assert_int_equal(ssh_list_count(awaited_list),
++                     ssh_list_count(session->opts.identity));
++
++    it1 = ssh_list_get_iterator(awaited_list);
++    assert_non_null(it1);
++    it2 = ssh_list_get_iterator(session->opts.identity);
++    assert_non_null(it2);
++    while (it1 != NULL && it2 != NULL) {
++        assert_string_equal(it1->data, it2->data);
++
++        free((void*)it1->data);
++        it1 = it1->next;
++        it2 = it2->next;
++    }
++    assert_null(it1);
++    assert_null(it2);
++
++    ssh_list_free(awaited_list);
++}
++
+ #ifdef WITH_SERVER
+ const char template[] = "temp_dir_XXXXXX";
+
+@@ -2132,6 +2296,7 @@ int torture_run_tests(void) {
+                                         setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_options_caret_sign,
+                                         setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_options_apply, setup, teardown),
+     };
+
+ #ifdef WITH_SERVER
+--
+2.38.1
+
