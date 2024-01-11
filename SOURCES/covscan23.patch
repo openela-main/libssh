@@ -1,0 +1,228 @@
+diff --color -ru ../libssh-0.10.4/src/buffer.c ./src/buffer.c
+--- ../libssh-0.10.4/src/buffer.c	2023-05-03 12:22:40.304114511 +0200
++++ ./src/buffer.c	2023-05-03 12:24:11.578110236 +0200
+@@ -747,7 +747,8 @@
+  */
+ int ssh_buffer_validate_length(struct ssh_buffer_struct *buffer, size_t len)
+ {
+-    if (buffer->pos + len < len || buffer->pos + len > buffer->used) {
++    if (buffer == NULL || buffer->pos + len < len ||
++        buffer->pos + len > buffer->used) {
+         return SSH_ERROR;
+     }
+ 
+diff --color -ru ../libssh-0.10.4/src/gssapi.c ./src/gssapi.c
+--- ../libssh-0.10.4/src/gssapi.c	2023-05-03 12:22:40.356115078 +0200
++++ ./src/gssapi.c	2023-05-03 12:24:11.566110105 +0200
+@@ -444,11 +444,18 @@
+         hexa = ssh_get_hexa(output_token.value, output_token.length);
+         SSH_LOG(SSH_LOG_PACKET, "GSSAPI: sending token %s",hexa);
+         SAFE_FREE(hexa);
+-        ssh_buffer_pack(session->out_buffer,
+-                        "bdP",
+-                        SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
+-                        output_token.length,
+-                        (size_t)output_token.length, output_token.value);
++        rc = ssh_buffer_pack(session->out_buffer,
++                             "bdP",
++                             SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
++                             output_token.length,
++                             (size_t)output_token.length, output_token.value);
++        if (rc != SSH_OK) {
++            ssh_set_error_oom(session);
++            ssh_auth_reply_default(session, 0);
++            ssh_gssapi_free(session);
++            session->gssapi = NULL;
++            return SSH_PACKET_USED;
++        }
+         ssh_packet_send(session);
+     }
+ 
+@@ -857,6 +864,7 @@
+ }
+ 
+ SSH_PACKET_CALLBACK(ssh_packet_userauth_gssapi_response){
++    int rc;
+     ssh_string oid_s;
+     gss_uint32 maj_stat, min_stat;
+     gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
+@@ -908,11 +916,15 @@
+         hexa = ssh_get_hexa(output_token.value, output_token.length);
+         SSH_LOG(SSH_LOG_PACKET, "GSSAPI: sending token %s", hexa);
+         SAFE_FREE(hexa);
+-        ssh_buffer_pack(session->out_buffer,
+-                        "bdP",
+-                        SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
+-                        output_token.length,
+-                        (size_t)output_token.length, output_token.value);
++        rc = ssh_buffer_pack(session->out_buffer,
++                             "bdP",
++                             SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
++                             output_token.length,
++                             (size_t)output_token.length, output_token.value);
++        if (rc != SSH_OK) {
++            ssh_set_error_oom(session);
++            goto error;
++        }
+         ssh_packet_send(session);
+         session->auth.state = SSH_AUTH_STATE_GSSAPI_TOKEN;
+     }
+@@ -975,6 +987,7 @@
+ }
+ 
+ SSH_PACKET_CALLBACK(ssh_packet_userauth_gssapi_token_client){
++    int rc;
+     ssh_string token;
+     char *hexa;
+     OM_uint32 maj_stat, min_stat;
+@@ -1027,11 +1040,15 @@
+         hexa = ssh_get_hexa(output_token.value, output_token.length);
+         SSH_LOG(SSH_LOG_PACKET, "GSSAPI: sending token %s",hexa);
+         SAFE_FREE(hexa);
+-        ssh_buffer_pack(session->out_buffer,
+-                        "bdP",
+-                        SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
+-                        output_token.length,
+-                        (size_t)output_token.length, output_token.value);
++        rc = ssh_buffer_pack(session->out_buffer,
++                             "bdP",
++                             SSH2_MSG_USERAUTH_GSSAPI_TOKEN,
++                             output_token.length,
++                             (size_t)output_token.length, output_token.value);
++        if (rc != SSH_OK) {
++            ssh_set_error_oom(session);
++            goto error;
++        }
+         ssh_packet_send(session);
+     }
+ 
+diff --color -ru ../libssh-0.10.4/src/options.c ./src/options.c
+--- ../libssh-0.10.4/src/options.c	2023-05-03 12:22:40.342114926 +0200
++++ ./src/options.c	2023-05-03 12:24:11.582110280 +0200
+@@ -614,7 +614,9 @@
+                 }
+                 i = strtol(q, &p, 10);
+                 if (q == p) {
++                    SSH_LOG(SSH_LOG_DEBUG, "No port number was parsed");
+                     SAFE_FREE(q);
++                    return -1;
+                 }
+                 SAFE_FREE(q);
+                 if (i <= 0) {
+@@ -816,7 +818,9 @@
+                 }
+                 i = strtol(q, &p, 10);
+                 if (q == p) {
++                    SSH_LOG(SSH_LOG_DEBUG, "No log verbositiy was parsed");
+                     SAFE_FREE(q);
++                    return -1;
+                 }
+                 SAFE_FREE(q);
+                 if (i < 0) {
+@@ -2035,7 +2039,9 @@
+         }
+         i = strtol(q, &p, 10);
+         if (q == p) {
+-          SAFE_FREE(q);
++            SSH_LOG(SSH_LOG_DEBUG, "No bind port was parsed");
++            SAFE_FREE(q);
++            return -1;
+         }
+         SAFE_FREE(q);
+ 
+@@ -2062,7 +2068,9 @@
+         }
+         i = strtol(q, &p, 10);
+         if (q == p) {
+-          SAFE_FREE(q);
++            SSH_LOG(SSH_LOG_DEBUG, "No log verbositiy was parsed");
++            SAFE_FREE(q);
++            return -1;
+         }
+         SAFE_FREE(q);
+ 
+diff --color -ru ../libssh-0.10.4/src/pki_container_openssh.c ./src/pki_container_openssh.c
+--- ../libssh-0.10.4/src/pki_container_openssh.c	2023-05-03 12:22:40.314114620 +0200
++++ ./src/pki_container_openssh.c	2023-05-03 12:24:11.566110105 +0200
+@@ -630,7 +630,11 @@
+             goto error;
+         }
+ 
+-        ssh_buffer_pack(kdf_buf, "Sd", salt, rounds);
++        rc = ssh_buffer_pack(kdf_buf, "Sd", salt, rounds);
++        if (rc != SSH_OK) {
++            SSH_BUFFER_FREE(kdf_buf);
++            goto error;
++        }
+         kdf_options = ssh_string_new(ssh_buffer_get_len(kdf_buf));
+         if (kdf_options == NULL){
+             SSH_BUFFER_FREE(kdf_buf);
+diff --color -ru ../libssh-0.10.4/tests/unittests/torture_options.c ./tests/unittests/torture_options.c
+--- ../libssh-0.10.4/tests/unittests/torture_options.c	2023-05-03 12:22:40.343114937 +0200
++++ ./tests/unittests/torture_options.c	2023-05-03 12:24:11.587110335 +0200
+@@ -319,6 +319,7 @@
+ 
+     rc = ssh_options_set(session, SSH_OPTIONS_PORT_STR, "five");
+     assert_true(rc == -1);
++    assert_int_not_equal(session->opts.port, 0);
+ 
+     rc = ssh_options_set(session, SSH_OPTIONS_PORT, NULL);
+     assert_true(rc == -1);
+@@ -1496,6 +1497,26 @@
+     ssh_list_free(awaited_list);
+ }
+ 
++static void torture_options_set_verbosity (void **state)
++{
++    ssh_session session = *state;
++    int rc, new_level;
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_LOG_VERBOSITY_STR,
++                         "3");
++    assert_int_equal(rc, SSH_OK);
++    new_level = ssh_get_log_level();
++    assert_int_equal(new_level, SSH_LOG_PACKET);
++
++    rc = ssh_options_set(session,
++                         SSH_OPTIONS_LOG_VERBOSITY_STR,
++                         "datsun");
++    assert_int_equal(rc, -1);
++    new_level = ssh_get_log_level();
++    assert_int_not_equal(new_level, 0);
++}
++
+ #ifdef WITH_SERVER
+ const char template[] = "temp_dir_XXXXXX";
+ 
+@@ -1750,6 +1771,10 @@
+     rc = ssh_bind_options_set(bind, SSH_BIND_OPTIONS_BINDPORT_STR, "23");
+     assert_int_equal(rc, 0);
+     assert_int_equal(bind->bindport, 23);
++
++    rc = ssh_bind_options_set(bind, SSH_BIND_OPTIONS_BINDPORT_STR, "twentythree");
++    assert_int_equal(rc, -1);
++    assert_int_not_equal(bind->bindport, 0);
+ }
+ 
+ static void torture_bind_options_log_verbosity(void **state)
+@@ -1799,6 +1824,11 @@
+     new_level = ssh_get_log_level();
+     assert_int_equal(new_level, SSH_LOG_PACKET);
+ 
++    rc = ssh_bind_options_set(bind, SSH_BIND_OPTIONS_LOG_VERBOSITY_STR, "verbosity");
++    assert_int_equal(rc, -1);
++    new_level = ssh_get_log_level();
++    assert_int_not_equal(new_level, 0);
++
+     rc = ssh_set_log_level(previous_level);
+     assert_int_equal(rc, SSH_OK);
+ }
+@@ -2297,6 +2327,7 @@
+         cmocka_unit_test_setup_teardown(torture_options_caret_sign,
+                                         setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_options_apply, setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_options_set_verbosity, setup, teardown),
+     };
+ 
+ #ifdef WITH_SERVER

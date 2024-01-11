@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.10.4
-Release:        8%{?dist}
+Release:        11%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -46,6 +46,11 @@ Patch4: plus_sign.patch
 Patch5: memory_leak.patch
 Patch6: options_apply.patch
 Patch7: enable_sk_keys_by_config.patch
+Patch8: null_dereference_rekey.patch
+Patch9: auth_bypass.patch
+Patch10: covscan23.patch
+Patch11: rekey_test_fixup.patch
+Patch12: covscan23_1.patch
 
 %description
 The ssh library was designed to be used by programmers needing a working SSH
@@ -138,6 +143,19 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Wed Jun 21 2023 Norbert Pocs <npocs@redhat.com> - 0.10.4-11
+- Fix loglevel regression
+- Related: rhbz#2182252, rhbz#2189740
+
+* Mon May 22 2023 Norbert Pocs <npocs@redhat.com> - 0.10.4.10
+- Fix null dereference issues found by covscan
+- Related: rhbz#2182252, rhbz#2189740
+
+* Wed May 10 2023 Norbert Pocs <npocs@redhat.com> - 0.10.4-9
+- Fix CVE-2023-1667 and CVE-2023-2283
+- Fix issues found by cosvcan
+- Resolves: rhbz#2182252, rhbz#2189740
+
 * Mon Jan 23 2023 Stanislav Zidek <szidek@redhat.com> - 0.10.4-8
 + libssh-0.10.4-8
 - Extended CI to run internal tests in RHEL

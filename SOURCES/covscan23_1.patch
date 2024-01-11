@@ -1,0 +1,57 @@
+File ../libssh-0.10.4/.git is a regular file while file ./.git is a directory
+diff --color -ru ../libssh-0.10.4/src/sftp.c ./src/sftp.c
+--- ../libssh-0.10.4/src/sftp.c	2023-05-22 12:45:48.383509085 +0200
++++ ./src/sftp.c	2023-05-22 12:54:31.004037650 +0200
+@@ -1755,6 +1755,10 @@
+ int sftp_close(sftp_file file){
+   int err = SSH_NO_ERROR;
+ 
++  if (file == NULL) {
++      return err;
++  }
++
+   SAFE_FREE(file->name);
+   if (file->handle){
+     err = sftp_handle_close(file->sftp,file->handle);
+@@ -1917,7 +1921,7 @@
+ 
+ /* Read from a file using an opened sftp file handle. */
+ ssize_t sftp_read(sftp_file handle, void *buf, size_t count) {
+-  sftp_session sftp = handle->sftp;
++  sftp_session sftp;
+   sftp_message msg = NULL;
+   sftp_status_message status;
+   ssh_string datastring;
+@@ -1926,6 +1930,11 @@
+   uint32_t id;
+   int rc;
+ 
++  if (handle == NULL) {
++      return -1;
++  }
++  sftp = handle->sftp;
++
+   if (handle->eof) {
+     return 0;
+   }
+@@ -2147,7 +2156,7 @@
+ }
+ 
+ ssize_t sftp_write(sftp_file file, const void *buf, size_t count) {
+-  sftp_session sftp = file->sftp;
++  sftp_session sftp;
+   sftp_message msg = NULL;
+   sftp_status_message status;
+   ssh_buffer buffer;
+@@ -2156,6 +2165,11 @@
+   size_t packetlen;
+   int rc;
+ 
++  if (file == NULL) {
++      return -1;
++  }
++  sftp = file->sftp;
++
+   buffer = ssh_buffer_new();
+   if (buffer == NULL) {
+     ssh_set_error_oom(sftp->session);

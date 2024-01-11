@@ -1,0 +1,21 @@
+diff --color -ru ../libssh-0.10.4/tests/client/torture_rekey.c ./tests/client/torture_rekey.c
+--- ../libssh-0.10.4/tests/client/torture_rekey.c	2023-05-17 10:55:23.384684129 +0200
++++ ./tests/client/torture_rekey.c	2023-05-17 10:56:29.819334665 +0200
+@@ -504,7 +504,7 @@
+     memset(data, 'A', 128);
+     for (i = 0; i < KEX_RETRY; i++) {
+         ssh_send_ignore(s->ssh.session, data);
+-        ssh_handle_packets(s->ssh.session, 100);
++        ssh_handle_packets(s->ssh.session, 1000);
+ 
+         c = s->ssh.session->current_crypto;
+         /* SHA256 len */
+@@ -582,7 +582,7 @@
+     memset(data, 'A', 128);
+     for (i = 0; i < KEX_RETRY; i++) {
+         ssh_send_ignore(s->ssh.session, data);
+-        ssh_handle_packets(s->ssh.session, 100);
++        ssh_handle_packets(s->ssh.session, 1000);
+ 
+         c = s->ssh.session->current_crypto;
+         /* SHA256 len */
