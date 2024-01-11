@@ -1,0 +1,1653 @@
+From d1315bf155f5541e769bac58bdbb1cf343a70952 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Mon, 7 Nov 2022 13:08:02 +0100
+Subject: [PATCH 1/6] tokens: Add low-level function to exlclude, prepend lists
+
+These functions are needed for openssh -,^ features.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ include/libssh/token.h |   8 +++
+ src/token.c            | 141 +++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 145 insertions(+), 4 deletions(-)
+
+diff --git a/include/libssh/token.h b/include/libssh/token.h
+index 9896fb06..2d07f8c4 100644
+--- a/include/libssh/token.h
++++ b/include/libssh/token.h
+@@ -45,4 +45,12 @@ char *ssh_remove_duplicates(const char *list);
+ 
+ char *ssh_append_without_duplicates(const char *list,
+                                     const char *appended_list);
++char *ssh_prefix_without_duplicates(const char *list,
++                                    const char *prefixed_list);
++char *ssh_remove_all_matching(const char *list,
++                              const char *remove_list);
++
++#ifdef __cplusplus
++}
++#endif
+ #endif /* TOKEN_H_ */
+diff --git a/src/token.c b/src/token.c
+index 0924d3bd..58befe1d 100644
+--- a/src/token.c
++++ b/src/token.c
+@@ -376,6 +376,7 @@ char *ssh_append_without_duplicates(const char *list,
+ {
+     size_t concat_len = 0;
+     char *ret = NULL, *concat = NULL;
++    int rc = 0;
+ 
+     if (list != NULL) {
+         concat_len = strlen(list);
+@@ -396,12 +397,144 @@ char *ssh_append_without_duplicates(const char *list,
+         return NULL;
+     }
+ 
++    rc = snprintf(concat, concat_len, "%s%s%s",
++                  list == NULL ? "" : list,
++                  list == NULL ? "" : ",",
++                  appended_list == NULL ? "" : appended_list);
++    if (rc < 0) {
++        SAFE_FREE(concat);
++        return NULL;
++    }
++
++    ret = ssh_remove_duplicates(concat);
++
++    SAFE_FREE(concat);
++
++    return ret;
++}
++
++/**
++ * @internal
++ *
++ * @brief Given two strings containing lists of tokens, return a newly
++ * allocated string containing the elements of the first list without the
++ * elements of the second list. The order of the elements will be preserved.
++ *
++ * @param[in] list             The first list
++ * @param[in] remove_list      The list to be removed
++ *
++ * @return  A newly allocated copy list containing elements of the
++ * list without the elements of remove_list; NULL in case of error.
++ */
++char *ssh_remove_all_matching(const char *list,
++                              const char *remove_list)
++{
++    struct ssh_tokens_st *l_tok = NULL, *r_tok = NULL;
++    int i, j, cmp;
++    char *ret = NULL;
++    size_t len, pos = 0;
++    bool exclude;
++
++    if ((list == NULL)) {
++        return NULL;
++    }
++    if (remove_list == NULL) {
++        return strdup (list);
++    }
++
++    l_tok = ssh_tokenize(list, ',');
++    if (l_tok == NULL) {
++        goto out;
++    }
++
++    r_tok = ssh_tokenize(remove_list, ',');
++    if (r_tok == NULL) {
++        goto out;
++    }
++
++    ret = calloc(1, strlen(list) + 1);
++    if (ret == NULL) {
++        goto out;
++    }
++
++    for (i = 0; l_tok->tokens[i]; i++) {
++        exclude = false;
++        for (j = 0; r_tok->tokens[j]; j++) {
++            cmp = strcmp(l_tok->tokens[i], r_tok->tokens[j]);
++            if (cmp == 0) {
++                exclude = true;
++                break;
++            }
++        }
++        if (exclude == false) {
++            if (pos != 0) {
++                ret[pos] = ',';
++                pos++;
++            }
++
++            len = strlen(l_tok->tokens[i]);
++            memcpy(&ret[pos], l_tok->tokens[i], len);
++            pos += len;
++        }
++    }
++
++    if (ret[0] == '\0') {
++        SAFE_FREE(ret);
++    }
++
++out:
++    ssh_tokens_free(l_tok);
++    ssh_tokens_free(r_tok);
++    return ret;
++}
++
++/**
++ * @internal
++ *
++ * @brief Given two strings containing lists of tokens, return a newly
++ * allocated string containing all the elements of the first list prefixed at
++ * the beginning of the second list, without duplicates.
++ *
++ * @param[in] list             The first list
++ * @param[in] prefixed_list    The list to use as a prefix
++ *
++ * @return  A newly allocated list containing all the elements
++ * of the list prefixed with the elements of the prefixed_list without
++ * duplicates; NULL in case of error.
++ */
++char *ssh_prefix_without_duplicates(const char *list,
++                                    const char *prefixed_list)
++{
++    size_t concat_len = 0;
++    char *ret = NULL, *concat = NULL;
++    int rc = 0;
++
+     if (list != NULL) {
+-        strcpy(concat, list);
+-        strncat(concat, ",", concat_len - strlen(concat) - 1);
++        concat_len = strlen(list);
+     }
+-    if (appended_list != NULL) {
+-        strncat(concat, appended_list, concat_len - strlen(concat) - 1);
++
++    if (prefixed_list != NULL) {
++        concat_len += strlen(prefixed_list);
++    }
++
++    if (concat_len == 0) {
++        return NULL;
++    }
++
++    /* Add room for ending '\0' and for middle ',' */
++    concat_len += 2;
++    concat = calloc(concat_len, 1);
++    if (concat == NULL) {
++        return NULL;
++    }
++
++    rc = snprintf(concat, concat_len, "%s%s%s",
++                  prefixed_list == NULL ? "" : prefixed_list,
++                  prefixed_list == NULL ? "" : ",",
++                  list == NULL ? "" : list);
++    if (rc < 0) {
++        SAFE_FREE(concat);
++        return NULL;
+     }
+ 
+     ret = ssh_remove_duplicates(concat);
+-- 
+2.38.1
+
+
+From f4516b9d43c4730ca5f60d73567596d65a672e16 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Fri, 11 Nov 2022 17:47:22 +0100
+Subject: [PATCH 2/6] torture_tokens.c: Add tests for new token functions
+
+Functions `ssh_remove_all_matching` and `ssh_prefix_without_duplicates` were
+added; a little test suite will suite them.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/unittests/torture_tokens.c | 64 ++++++++++++++++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/tests/unittests/torture_tokens.c b/tests/unittests/torture_tokens.c
+index 6b52b847..438538de 100644
+--- a/tests/unittests/torture_tokens.c
++++ b/tests/unittests/torture_tokens.c
+@@ -265,6 +265,68 @@ static void torture_append_without_duplicate(UNUSED_PARAM(void **state))
+     }
+ }
+ 
++static void torture_remove_all_matching (UNUSED_PARAM(void** state)) {
++    char *p;
++
++    p = ssh_remove_all_matching(NULL, NULL);
++    assert_null(p);
++
++    p = ssh_remove_all_matching("don't remove", NULL);
++    assert_non_null(p);
++    assert_string_equal(p, "don't remove");
++    free(p);
++
++    p = ssh_remove_all_matching("a,b,c", "b");
++    assert_non_null(p);
++    assert_string_equal(p, "a,c");
++    free(p);
++
++    p = ssh_remove_all_matching("a,b,c", "a,b");
++    assert_non_null(p);
++    assert_string_equal(p, "c");
++    free(p);
++
++    p = ssh_remove_all_matching("a,b,c", "d");
++    assert_non_null(p);
++    assert_string_equal(p, "a,b,c");
++    free(p);
++
++    p = ssh_remove_all_matching("a,b,c", "a,b,c");
++    assert_null(p);
++}
++
++static void torture_prefix_without_duplicates (UNUSED_PARAM(void** state)) {
++    char *p;
++
++    p = ssh_prefix_without_duplicates(NULL, NULL);
++    assert_null(p);
++
++    p = ssh_prefix_without_duplicates("a,b,c", NULL);
++    assert_non_null(p);
++    assert_string_equal(p, "a,b,c");
++    free(p);
++
++    p = ssh_prefix_without_duplicates("a,b,c", "a");
++    assert_non_null(p);
++    assert_string_equal(p, "a,b,c");
++    free(p);
++
++    p = ssh_prefix_without_duplicates("a,b,c", "b");
++    assert_non_null(p);
++    assert_string_equal(p, "b,a,c");
++    free(p);
++
++    p = ssh_prefix_without_duplicates("a,b,c", "x");
++    assert_non_null(p);
++    assert_string_equal(p, "x,a,b,c");
++    free(p);
++
++    p = ssh_prefix_without_duplicates("a,b,c", "c,x");
++    assert_non_null(p);
++    assert_string_equal(p, "c,x,a,b");
++    free(p);
++}
++
+ 
+ int torture_run_tests(void)
+ {
+@@ -275,6 +337,8 @@ int torture_run_tests(void)
+         cmocka_unit_test(torture_find_all_matching),
+         cmocka_unit_test(torture_remove_duplicate),
+         cmocka_unit_test(torture_append_without_duplicate),
++        cmocka_unit_test(torture_remove_all_matching),
++        cmocka_unit_test(torture_prefix_without_duplicates),
+     };
+ 
+     ssh_init();
+-- 
+2.38.1
+
+
+From be50b4296574ba59537415b9903e8e4aa94cce53 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Mon, 7 Nov 2022 08:23:30 +0100
+Subject: [PATCH 3/6] kex: Add functions for openssh +,-,^ features
+
+The funcions can:
+- add a list to the default list
+- remove a list from the default list
+- prepend a list to the default list
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ include/libssh/kex.h |   4 ++
+ src/kex.c            | 105 +++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 109 insertions(+)
+
+diff --git a/include/libssh/kex.h b/include/libssh/kex.h
+index 3a1f4a6f..23b93924 100644
+--- a/include/libssh/kex.h
++++ b/include/libssh/kex.h
+@@ -40,6 +40,10 @@ int ssh_kex_select_methods(ssh_session session);
+ int ssh_verify_existing_algo(enum ssh_kex_types_e algo, const char *name);
+ char *ssh_keep_known_algos(enum ssh_kex_types_e algo, const char *list);
+ char *ssh_keep_fips_algos(enum ssh_kex_types_e algo, const char *list);
++char *ssh_add_to_default_algos(enum ssh_kex_types_e algo, const char *list);
++char *ssh_remove_from_default_algos(enum ssh_kex_types_e algo,
++                                    const char *list);
++char *ssh_prefix_default_algos(enum ssh_kex_types_e algo, const char *list);
+ char **ssh_space_tokenize(const char *chain);
+ int ssh_get_kex1(ssh_session session);
+ char *ssh_find_matching(const char *in_d, const char *what_d);
+diff --git a/src/kex.c b/src/kex.c
+index 64083997..1155b9c7 100644
+--- a/src/kex.c
++++ b/src/kex.c
+@@ -983,6 +983,111 @@ char *ssh_keep_fips_algos(enum ssh_kex_types_e algo, const char *list)
+     return ssh_find_all_matching(fips_methods[algo], list);
+ }
+ 
++/**
++ * @internal
++ *
++ * @brief Return a newly allocated string containing the default
++ * algorithms plus the algorithms specified in list. If the system
++ * runs in fips mode, this will add only fips approved algorithms.
++ * Empty list will cause error.
++ *
++ * @param[in] algo  The type of the methods to filter
++ * @param[in] list  The list to be appended
++ *
++ * @return A newly allocated list containing the default algorithms and the
++ * algorithms in list at the end; NULL in case of error.
++ */
++char *ssh_add_to_default_algos(enum ssh_kex_types_e algo, const char *list)
++{
++    char *tmp = NULL, *ret = NULL;
++
++    if (algo > SSH_LANG_S_C || list == NULL || list[0] == '\0') {
++        return NULL;
++    }
++
++    if (ssh_fips_mode()) {
++        tmp = ssh_append_without_duplicates(fips_methods[algo], list);
++        ret = ssh_find_all_matching(fips_methods[algo], tmp);
++    } else {
++        tmp = ssh_append_without_duplicates(default_methods[algo], list);
++        ret = ssh_find_all_matching(supported_methods[algo], tmp);
++    }
++
++    free(tmp);
++    return ret;
++}
++
++/**
++ * @internal
++ *
++ * @brief Return a newly allocated string containing the default
++ * algorithms excluding the algorithms specified in list. If the system
++ * runs in fips mode, this will remove from the fips_methods list.
++ *
++ * @param[in] algo  The type of the methods to filter
++ * @param[in] list  The list to be exclude
++ *
++ * @return A newly allocated list containing the default algorithms without the
++ * algorithms in list; NULL in case of error.
++ */
++char *ssh_remove_from_default_algos(enum ssh_kex_types_e algo, const char *list)
++{
++    if (algo > SSH_LANG_S_C) {
++        return NULL;
++    }
++
++    if (list == NULL || list[0] == '\0') {
++        if (ssh_fips_mode()) {
++            return strdup(fips_methods[algo]);
++        } else {
++            return strdup(default_methods[algo]);
++        }
++    }
++
++    if (ssh_fips_mode()) {
++        return ssh_remove_all_matching(fips_methods[algo], list);
++    } else {
++        return ssh_remove_all_matching(default_methods[algo], list);
++    }
++}
++
++/**
++ * @internal
++ *
++ * @brief Return a newly allocated string containing the default
++ * algorithms with prioritized algorithms specified in list. If the
++ * algorithms are present in the default list they get prioritized, if not
++ * they are added to the front of the default list. If the system
++ * runs in fips mode, this will work with the fips_methods list.
++ * Empty list will cause error.
++ *
++ * @param[in] algo  The type of the methods to filter
++ * @param[in] list  The list to be pushed to priority
++ *
++ * @return A newly allocated list containing the default algorithms prioritized
++ * with the algorithms in list at the beginning of the list; NULL in case
++ * of error.
++ */
++char *ssh_prefix_default_algos(enum ssh_kex_types_e algo, const char *list)
++{
++    char *ret = NULL, *tmp = NULL;
++
++    if (algo > SSH_LANG_S_C || list == NULL || list[0] == '\0') {
++        return NULL;
++    }
++
++    if (ssh_fips_mode()) {
++        tmp = ssh_prefix_without_duplicates(fips_methods[algo], list);
++        ret = ssh_find_all_matching(fips_methods[algo], tmp);
++    } else {
++        tmp = ssh_prefix_without_duplicates(default_methods[algo], list);
++        ret = ssh_find_all_matching(supported_methods[algo], tmp);
++    }
++
++    free(tmp);
++    return ret;
++}
++
+ int ssh_make_sessionid(ssh_session session)
+ {
+     ssh_string num = NULL;
+-- 
+2.38.1
+
+
+From 0d5d6e750a0c25700a47a760cb066b6027a54b09 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Mon, 7 Nov 2022 13:13:20 +0100
+Subject: [PATCH 4/6] options.c: Add support for openssh config +,-,^
+
+These features allow for options Ciphers, HostKeyAlgorithms, KexAlgorithms and
+MACs to append, remove and prepend to the default list of algorithms
+respectively
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ include/libssh/options.h |   3 +-
+ src/options.c            | 244 +++++++++++++++++++++++++--------------
+ src/server.c             |   3 +-
+ 3 files changed, 161 insertions(+), 89 deletions(-)
+
+diff --git a/include/libssh/options.h b/include/libssh/options.h
+index e8dc6c69..dd04c8af 100644
+--- a/include/libssh/options.h
++++ b/include/libssh/options.h
+@@ -25,7 +25,8 @@ int ssh_config_parse_file(ssh_session session, const char *filename);
+ int ssh_config_parse_string(ssh_session session, const char *input);
+ int ssh_options_set_algo(ssh_session session,
+                          enum ssh_kex_types_e algo,
+-                         const char *list);
++                         const char *list,
++                         char **place);
+ int ssh_options_apply(ssh_session session);
+ 
+ #endif /* _OPTIONS_H */
+diff --git a/src/options.c b/src/options.c
+index 49aaefa2..56e09c65 100644
+--- a/src/options.c
++++ b/src/options.c
+@@ -221,14 +221,30 @@ int ssh_options_copy(ssh_session src, ssh_session *dest)
+ 
+ int ssh_options_set_algo(ssh_session session,
+                          enum ssh_kex_types_e algo,
+-                         const char *list)
++                         const char *list,
++                         char **place)
+ {
+-    char *p = NULL;
++    /* When the list start with +,-,^ the filtration of unknown algorithms
++     * gets handled inside the helper functions, otherwise the list is taken
++     * as it is. */
++    char *p = (char *)list;
++
++    if (algo < SSH_COMP_C_S) {
++        if (list[0] == '+') {
++            p = ssh_add_to_default_algos(algo, list+1);
++        } else if (list[0] == '-') {
++            p = ssh_remove_from_default_algos(algo, list+1);
++        } else if (list[0] == '^') {
++            p = ssh_prefix_default_algos(algo, list+1);
++        }
++    }
+ 
+-    if (ssh_fips_mode()) {
+-        p = ssh_keep_fips_algos(algo, list);
+-    } else {
+-        p = ssh_keep_known_algos(algo, list);
++    if (p == list) {
++        if (ssh_fips_mode()) {
++            p = ssh_keep_fips_algos(algo, list);
++        } else {
++            p = ssh_keep_known_algos(algo, list);
++        }
+     }
+ 
+     if (p == NULL) {
+@@ -238,8 +254,8 @@ int ssh_options_set_algo(ssh_session session,
+         return -1;
+     }
+ 
+-    SAFE_FREE(session->opts.wanted_methods[algo]);
+-    session->opts.wanted_methods[algo] = p;
++    SAFE_FREE(*place);
++    *place = p;
+ 
+     return 0;
+ }
+@@ -356,34 +372,60 @@ int ssh_options_set_algo(ssh_session session,
+  *
+  *              - SSH_OPTIONS_CIPHERS_C_S:
+  *                Set the symmetric cipher client to server (const char *,
+- *                comma-separated list).
++ *                comma-separated list). The list can be prepended by +,-,^
++ *                which can append, remove or move to the beginning
++ *                (prioritizing) of the default list respectively. Giving an
++ *                empty list after + and ^ will cause error.
+  *
+  *              - SSH_OPTIONS_CIPHERS_S_C:
+  *                Set the symmetric cipher server to client (const char *,
+- *                comma-separated list).
++ *                comma-separated list). The list can be prepended by +,-,^
++ *                which can append, remove or move to the beginning
++ *                (prioritizing) of the default list respectively. Giving an
++ *                empty list after + and ^ will cause error.
+  *
+  *              - SSH_OPTIONS_KEY_EXCHANGE:
+  *                Set the key exchange method to be used (const char *,
+  *                comma-separated list). ex:
+  *                "ecdh-sha2-nistp256,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1"
++ *                The list can be prepended by +,-,^ which will append,
++ *                remove or move to the beginning (prioritizing) of the
++ *                default list respectively. Giving an empty list
++ *                after + and ^ will cause error.
+  *
+  *              - SSH_OPTIONS_HMAC_C_S:
+  *                Set the Message Authentication Code algorithm client to server
+- *                (const char *, comma-separated list).
++ *                (const char *, comma-separated list). The list can be
++ *                prepended by +,-,^ which will append, remove or move to
++ *                the beginning (prioritizing) of the default list
++ *                respectively. Giving an empty list after + and ^ will
++ *                cause error.
+  *
+  *              - SSH_OPTIONS_HMAC_S_C:
+  *                Set the Message Authentication Code algorithm server to client
+- *                (const char *, comma-separated list).
++ *                (const char *, comma-separated list). The list can be
++ *                prepended by +,-,^ which will append, remove or move to
++ *                the beginning (prioritizing) of the default list
++ *                respectively. Giving an empty list after + and ^ will
++ *                cause error.
+  *
+  *              - SSH_OPTIONS_HOSTKEYS:
+  *                Set the preferred server host key types (const char *,
+  *                comma-separated list). ex:
+- *                "ssh-rsa,ssh-dss,ecdh-sha2-nistp256"
++ *                "ssh-rsa,ssh-dss,ecdh-sha2-nistp256". The list can be
++ *                prepended by +,-,^ which will append, remove or move to
++ *                the beginning (prioritizing) of the default list
++ *                respectively. Giving an empty list after + and ^ will
++ *                cause error.
+  *
+  *              - SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES:
+  *                Set the preferred public key algorithms to be used for
+  *                authentication (const char *, comma-separated list). ex:
+  *                "ssh-rsa,rsa-sha2-256,ssh-dss,ecdh-sha2-nistp256"
++ *                The list can be prepended by +,-,^ which will append,
++ *                remove or move to the beginning (prioritizing) of the
++ *                default list respectively. Giving an empty list
++ *                after + and ^ will cause error.
+  *
+  *              - SSH_OPTIONS_COMPRESSION_C_S:
+  *                Set the compression to use for client to server
+@@ -496,6 +538,7 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+     long int i;
+     unsigned int u;
+     int rc;
++    char **wanted_methods = session->opts.wanted_methods;
+ 
+     if (session == NULL) {
+         return -1;
+@@ -779,7 +822,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_CRYPT_C_S, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_CRYPT_C_S,
++                                          v,
++                                          &wanted_methods[SSH_CRYPT_C_S]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -789,7 +836,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_CRYPT_S_C, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_CRYPT_S_C,
++                                          v,
++                                          &wanted_methods[SSH_CRYPT_S_C]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -799,7 +850,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_KEX, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_KEX,
++                                          v,
++                                          &wanted_methods[SSH_KEX]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -809,7 +864,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_HOSTKEYS, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_HOSTKEYS,
++                                          v,
++                                          &wanted_methods[SSH_HOSTKEYS]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -819,20 +878,12 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_fips_mode()) {
+-                    p = ssh_keep_fips_algos(SSH_HOSTKEYS, v);
+-                } else {
+-                    p = ssh_keep_known_algos(SSH_HOSTKEYS, v);
+-                }
+-                if (p == NULL) {
+-                    ssh_set_error(session, SSH_REQUEST_DENIED,
+-                        "Setting method: no known public key algorithm (%s)",
+-                         v);
++                rc = ssh_options_set_algo(session,
++                                          SSH_HOSTKEYS,
++                                          v,
++                                          &session->opts.pubkey_accepted_types);
++                if (rc < 0)
+                     return -1;
+-                }
+-
+-                SAFE_FREE(session->opts.pubkey_accepted_types);
+-                session->opts.pubkey_accepted_types = p;
+             }
+             break;
+         case SSH_OPTIONS_HMAC_C_S:
+@@ -841,7 +892,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_MAC_C_S, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_MAC_C_S,
++                                          v,
++                                          &wanted_methods[SSH_MAC_C_S]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -851,7 +906,11 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (ssh_options_set_algo(session, SSH_MAC_S_C, v) < 0)
++                rc = ssh_options_set_algo(session,
++                                          SSH_MAC_S_C,
++                                          v,
++                                          &wanted_methods[SSH_MAC_S_C]);
++                if (rc < 0)
+                     return -1;
+             }
+             break;
+@@ -861,16 +920,18 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (strcasecmp(value,"yes")==0){
+-                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"zlib@openssh.com,zlib,none") < 0)
+-                        return -1;
+-                } else if (strcasecmp(value,"no")==0){
+-                    if(ssh_options_set_algo(session,SSH_COMP_C_S,"none,zlib@openssh.com,zlib") < 0)
+-                        return -1;
+-                } else {
+-                    if (ssh_options_set_algo(session, SSH_COMP_C_S, v) < 0)
+-                        return -1;
++                const char *tmp = v;
++                if (strcasecmp(value, "yes") == 0){
++                    tmp = "zlib@openssh.com,zlib,none";
++                } else if (strcasecmp(value, "no") == 0){
++                    tmp = "none,zlib@openssh.com,zlib";
+                 }
++                rc = ssh_options_set_algo(session,
++                                          SSH_COMP_C_S,
++                                          tmp,
++                                          &wanted_methods[SSH_COMP_C_S]);
++                if (rc < 0)
++                    return -1;
+             }
+             break;
+         case SSH_OPTIONS_COMPRESSION_S_C:
+@@ -879,16 +940,19 @@ int ssh_options_set(ssh_session session, enum ssh_options_e type,
+                 ssh_set_error_invalid(session);
+                 return -1;
+             } else {
+-                if (strcasecmp(value,"yes")==0){
+-                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"zlib@openssh.com,zlib,none") < 0)
+-                        return -1;
+-                } else if (strcasecmp(value,"no")==0){
+-                    if(ssh_options_set_algo(session,SSH_COMP_S_C,"none,zlib@openssh.com,zlib") < 0)
+-                        return -1;
+-                } else {
+-                    if (ssh_options_set_algo(session, SSH_COMP_S_C, v) < 0)
+-                        return -1;
++                const char *tmp = v;
++                if (strcasecmp(value, "yes") == 0){
++                    tmp = "zlib@openssh.com,zlib,none";
++                } else if (strcasecmp(value, "no") == 0){
++                    tmp = "none,zlib@openssh.com,zlib";
+                 }
++
++                rc = ssh_options_set_algo(session,
++                                          SSH_COMP_S_C,
++                                          tmp,
++                                          &wanted_methods[SSH_COMP_S_C]);
++                if (rc < 0)
++                    return -1;
+             }
+             break;
+         case SSH_OPTIONS_COMPRESSION:
+@@ -1604,26 +1668,12 @@ ssh_bind_set_key(ssh_bind sshbind, char **key_loc, const void *value)
+ 
+ static int ssh_bind_set_algo(ssh_bind sshbind,
+                              enum ssh_kex_types_e algo,
+-                             const char *list)
++                             const char *list,
++                             char **place)
+ {
+-    char *p = NULL;
+-
+-    if (ssh_fips_mode()) {
+-        p = ssh_keep_fips_algos(algo, list);
+-    } else {
+-        p = ssh_keep_known_algos(algo, list);
+-    }
+-    if (p == NULL) {
+-        ssh_set_error(sshbind, SSH_REQUEST_DENIED,
+-                      "Setting method: no algorithm for method \"%s\" (%s)",
+-                      ssh_kex_get_description(algo), list);
+-        return -1;
+-    }
+-
+-    SAFE_FREE(sshbind->wanted_methods[algo]);
+-    sshbind->wanted_methods[algo] = p;
+-
+-    return 0;
++    /* sshbind is needed only for ssh_set_error which takes void*
++     * the typecast is only to satisfy function parameter type */
++    return ssh_options_set_algo((ssh_session)sshbind, algo, list, place);
+ }
+ 
+ /**
+@@ -1765,6 +1815,7 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+   char *p, *q;
+   const char *v;
+   int i, rc;
++  char **wanted_methods = sshbind->wanted_methods;
+ 
+   if (sshbind == NULL) {
+     return -1;
+@@ -2014,8 +2065,13 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            if (ssh_bind_set_algo(sshbind, SSH_CRYPT_C_S, v) < 0)
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_CRYPT_C_S,
++                                   v,
++                                   &wanted_methods[SSH_CRYPT_C_S]);
++            if (rc < 0) {
+                 return -1;
++            }
+         }
+         break;
+     case SSH_BIND_OPTIONS_CIPHERS_S_C:
+@@ -2024,8 +2080,13 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            if (ssh_bind_set_algo(sshbind, SSH_CRYPT_S_C, v) < 0)
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_CRYPT_S_C,
++                                   v,
++                                   &wanted_methods[SSH_CRYPT_S_C]);
++            if (rc < 0) {
+                 return -1;
++            }
+         }
+         break;
+     case SSH_BIND_OPTIONS_KEY_EXCHANGE:
+@@ -2034,7 +2095,10 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            rc = ssh_bind_set_algo(sshbind, SSH_KEX, v);
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_KEX,
++                                   v,
++                                   &wanted_methods[SSH_KEX]);
+             if (rc < 0) {
+                 return -1;
+             }
+@@ -2046,8 +2110,13 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            if (ssh_bind_set_algo(sshbind, SSH_MAC_C_S, v) < 0)
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_MAC_C_S,
++                                   v,
++                                   &wanted_methods[SSH_MAC_C_S]);
++            if (rc < 0) {
+                 return -1;
++            }
+         }
+         break;
+      case SSH_BIND_OPTIONS_HMAC_S_C:
+@@ -2056,8 +2125,13 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            if (ssh_bind_set_algo(sshbind, SSH_MAC_S_C, v) < 0)
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_MAC_S_C,
++                                   v,
++                                   &wanted_methods[SSH_MAC_S_C]);
++            if (rc < 0) {
+                 return -1;
++            }
+         }
+         break;
+     case SSH_BIND_OPTIONS_CONFIG_DIR:
+@@ -2082,20 +2156,13 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            if (ssh_fips_mode()) {
+-                p = ssh_keep_fips_algos(SSH_HOSTKEYS, v);
+-            } else {
+-                p = ssh_keep_known_algos(SSH_HOSTKEYS, v);
+-            }
+-            if (p == NULL) {
+-                ssh_set_error(sshbind, SSH_REQUEST_DENIED,
+-                    "Setting method: no known public key algorithm (%s)",
+-                     v);
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_HOSTKEYS,
++                                   v,
++                                   &sshbind->pubkey_accepted_key_types);
++            if (rc < 0) {
+                 return -1;
+             }
+-
+-            SAFE_FREE(sshbind->pubkey_accepted_key_types);
+-            sshbind->pubkey_accepted_key_types = p;
+         }
+         break;
+     case SSH_BIND_OPTIONS_HOSTKEY_ALGORITHMS:
+@@ -2104,7 +2171,10 @@ int ssh_bind_options_set(ssh_bind sshbind, enum ssh_bind_options_e type,
+             ssh_set_error_invalid(sshbind);
+             return -1;
+         } else {
+-            rc = ssh_bind_set_algo(sshbind, SSH_HOSTKEYS, v);
++            rc = ssh_bind_set_algo(sshbind,
++                                   SSH_HOSTKEYS,
++                                   v,
++                                   &wanted_methods[SSH_HOSTKEYS]);
+             if (rc < 0) {
+                 return -1;
+             }
+diff --git a/src/server.c b/src/server.c
+index 3fc25bd9..1b423fd0 100644
+--- a/src/server.c
++++ b/src/server.c
+@@ -160,7 +160,8 @@ int server_set_kex(ssh_session session)
+ 
+     rc = ssh_options_set_algo(session,
+                               SSH_HOSTKEYS,
+-                              kept);
++                              kept,
++                              &session->opts.wanted_methods[SSH_HOSTKEYS]);
+     SAFE_FREE(kept);
+     if (rc < 0) {
+         return -1;
+-- 
+2.38.1
+
+
+From b6cc8f643624231a583bd7972e9503b3fa434caa Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Mon, 7 Nov 2022 08:28:31 +0100
+Subject: [PATCH 5/6] torture_options.c: Add test for config +,-,^ feature
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/unittests/torture_options.c | 223 ++++++++++++++++++++++++++++++
+ 1 file changed, 223 insertions(+)
+
+diff --git a/tests/unittests/torture_options.c b/tests/unittests/torture_options.c
+index e1d16f02..dc4df383 100644
+--- a/tests/unittests/torture_options.c
++++ b/tests/unittests/torture_options.c
+@@ -1087,6 +1087,223 @@ static void torture_options_getopt(void **state)
+ #endif /* _NSC_VER */
+ }
+ 
++static void torture_options_plus_sign(void **state)
++{
++    ssh_session session = *state;
++    int rc;
++    const char *def_host_alg, *alg, *algs;
++    char *awaited;
++    size_t alg_len, algs_len;
++
++    if (ssh_fips_mode()) {
++        alg = ",rsa-sha2-512-cert-v01@openssh.com";
++        algs = ",rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521";
++        def_host_alg = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    } else {
++        alg = ",ssh-rsa";
++        algs = ",ssh-rsa,ssh-rsa-cert-v01@openssh.com";
++        def_host_alg = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    }
++    alg_len = strlen(alg);
++    algs_len = strlen(algs);
++
++    /* in fips mode, the default list is the available list, which means
++     * we can't append anything because everything enabled is already
++     * included */
++    if (ssh_fips_mode()) {
++        awaited = strdup(def_host_alg);
++        assert_non_null(awaited);
++    } else {
++        awaited = calloc(strlen(def_host_alg) + alg_len + 1, 1);
++        assert_non_null(awaited);
++
++        memcpy(awaited, def_host_alg, strlen(def_host_alg));
++        memcpy(awaited+strlen(def_host_alg), alg, alg_len);
++    }
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "+rsa-sha2-512-cert-v01@openssh.com");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "+ssh-rsa");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++
++    if (!ssh_fips_mode()) {
++        /* different algorithm list is used here */
++        free(awaited);
++
++        awaited = calloc(strlen(def_host_alg) + algs_len + 1, 1);
++        assert_non_null(awaited);
++        memcpy(awaited, def_host_alg, strlen(def_host_alg));
++        memcpy(awaited+strlen(def_host_alg), algs, algs_len);
++    }
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
++                             "+rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
++                             "+ssh-rsa,ssh-rsa-cert-v01@openssh.com");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "+");
++    assert_ssh_return_code_equal(session, rc, SSH_ERROR);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "+blablabla");
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        def_host_alg);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, NULL);
++    assert_ssh_return_code_equal(session, rc, SSH_ERROR);
++
++    free(awaited);
++}
++
++static void torture_options_minus_sign(void **state)
++{
++    ssh_session session = *state;
++    int rc;
++    const char *def_host_alg, *alg, *algs;
++    char *awaited, *p;
++    size_t alg_len, algs_len;
++
++    if (ssh_fips_mode()) {
++        alg = "rsa-sha2-512-cert-v01@openssh.com,";
++        algs = "rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521,";
++        def_host_alg = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    } else {
++        alg = "ssh-ed25519,";
++        algs = "ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,";
++        def_host_alg = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    }
++    alg_len = strlen(alg);
++    algs_len = strlen(algs);
++
++    awaited = calloc(strlen(def_host_alg) + 1, 1);
++    assert_non_null(awaited);
++
++    memcpy(awaited, def_host_alg, strlen(def_host_alg));
++    p = strstr(awaited, alg);
++    assert_non_null(p);
++    memmove(p, p+alg_len, strlen(p + alg_len) + 1);
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-rsa-sha2-512-cert-v01@openssh.com");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-ssh-ed25519");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++
++    p = strstr(awaited, algs);
++    assert_non_null(p);
++    memmove(p, p+algs_len, strlen(p + algs_len) + 1);
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-ssh-ed25519,ecdsa-sha2-nistp521,ecdsa-sha2-nistp384");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-");
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        def_host_alg);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "-blablabla");
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        def_host_alg);
++
++    free(awaited);
++}
++
++static void torture_options_caret_sign(void **state)
++{
++    ssh_session session = *state;
++    int rc;
++    const char *def_host_alg, *alg, *algs;
++    size_t alg_len, algs_len;
++    char *awaited, *p;
++
++    if (ssh_fips_mode()) {
++        alg = "rsa-sha2-512-cert-v01@openssh.com,";
++        algs = "rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521,";
++        def_host_alg = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    } else {
++        alg = "ssh-rsa,";
++        algs = "ssh-rsa,ssh-rsa-cert-v01@openssh.com,";
++        def_host_alg = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    }
++    alg_len = strlen(alg);
++    algs_len = strlen(algs);
++
++    awaited = calloc(strlen(def_host_alg) + alg_len + 1, 1);
++    assert_non_null(awaited);
++
++    memcpy(awaited, alg, alg_len);
++    memcpy(awaited+alg_len, def_host_alg, strlen(def_host_alg));
++    if (ssh_fips_mode()) {
++        p = strstr(awaited, alg);
++        /* look for second occurrence */
++        p = strstr(p+1, algs);
++        memmove(p, p+alg_len, strlen(p + alg_len) + 1);
++    }
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "^rsa-sha2-512-cert-v01@openssh.com");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "^ssh-rsa");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++    /* different algorithm list is used here */
++    free(awaited);
++
++    awaited = calloc(strlen(def_host_alg) + algs_len + 1, 1);
++    assert_non_null(awaited);
++    memcpy(awaited, algs, algs_len);
++    memcpy(awaited+algs_len, def_host_alg, strlen(def_host_alg));
++    if (ssh_fips_mode()) {
++        p = strstr(awaited, algs);
++        /* look for second occurrence */
++        p = strstr(p+1, algs);
++        memmove(p, p+algs_len, strlen(p + algs_len) + 1);
++    }
++
++    if (ssh_fips_mode()) {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
++                             "^rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ecdsa-sha2-nistp521");
++    } else {
++        rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS,
++                             "^ssh-rsa,ssh-rsa-cert-v01@openssh.com");
++    }
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        awaited);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "^");
++    assert_ssh_return_code_equal(session, rc, SSH_ERROR);
++
++    rc = ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, "^blablabla");
++    assert_ssh_return_code(session, rc);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS],
++                        def_host_alg);
++
++    free(awaited);
++}
++
+ #ifdef WITH_SERVER
+ const char template[] = "temp_dir_XXXXXX";
+ 
+@@ -1881,6 +2098,12 @@ int torture_run_tests(void) {
+                                         setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_options_getopt,
+                                         setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_options_plus_sign,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_options_minus_sign,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_options_caret_sign,
++                                        setup, teardown),
+     };
+ 
+ #ifdef WITH_SERVER
+-- 
+2.38.1
+
+
+From c73996c4e747a9e28f919d660411c804bc748324 Mon Sep 17 00:00:00 2001
+From: Norbert Pocs <npocs@redhat.com>
+Date: Thu, 10 Nov 2022 10:50:52 +0100
+Subject: [PATCH 6/6] torture_config.c: Add test for +,-,^ config feature
+
+It should be possible to use features to add,remove,prioritize
+algorithms in the algorithm list from the config file.
+
+Signed-off-by: Norbert Pocs <npocs@redhat.com>
+Reviewed-by: Jakub Jelen <jjelen@redhat.com>
+---
+ tests/unittests/torture_config.c | 393 +++++++++++++++++++++++++++++++
+ 1 file changed, 393 insertions(+)
+
+diff --git a/tests/unittests/torture_config.c b/tests/unittests/torture_config.c
+index 31dadae3..354adc2f 100644
+--- a/tests/unittests/torture_config.c
++++ b/tests/unittests/torture_config.c
+@@ -40,6 +40,9 @@ extern LIBSSH_THREAD int ssh_log_level;
+ #define LIBSSH_TESTCONFIG10 "libssh_testconfig10.tmp"
+ #define LIBSSH_TESTCONFIG11 "libssh_testconfig11.tmp"
+ #define LIBSSH_TESTCONFIG12 "libssh_testconfig12.tmp"
++#define LIBSSH_TESTCONFIG14 "libssh_testconfig14.tmp"
++#define LIBSSH_TESTCONFIG15 "libssh_testconfig15.tmp"
++#define LIBSSH_TESTCONFIG16 "libssh_testconfig16.tmp"
+ #define LIBSSH_TESTCONFIGGLOB "libssh_testc*[36].tmp"
+ #define LIBSSH_TEST_PUBKEYTYPES "libssh_test_PubkeyAcceptedKeyTypes.tmp"
+ #define LIBSSH_TEST_PUBKEYALGORITHMS "libssh_test_PubkeyAcceptedAlgorithms.tmp"
+@@ -181,6 +184,27 @@ extern LIBSSH_THREAD int ssh_log_level;
+    "IdentityFile id_rsa_one\n" \
+    "IdentityFile id_ecdsa_two\n"
+ 
++/* +,-,^ features for all supported list */
++/* kex won't work in fips */
++#define LIBSSH_TESTCONFIG_STRING14 \
++    "HostKeyAlgorithms +ssh-rsa\n" \
++    "Ciphers +aes128-cbc,aes256-cbc\n" \
++    "KexAlgorithms +diffie-hellman-group14-sha1,diffie-hellman-group1-sha1\n" \
++    "MACs +hmac-sha1,hmac-sha1-etm@openssh.com\n"
++
++/* have to be algorithms which are in the default list */
++#define LIBSSH_TESTCONFIG_STRING15 \
++    "HostKeyAlgorithms -rsa-sha2-512,rsa-sha2-256\n" \
++    "Ciphers -aes256-ctr\n" \
++    "KexAlgorithms -diffie-hellman-group18-sha512,diffie-hellman-group16-sha512\n" \
++    "MACs -hmac-sha2-256-etm@openssh.com\n"
++
++#define LIBSSH_TESTCONFIG_STRING16 \
++    "HostKeyAlgorithms ^rsa-sha2-512,rsa-sha2-256\n" \
++    "Ciphers ^aes256-cbc\n" \
++    "KexAlgorithms ^diffie-hellman-group18-sha512,diffie-hellman-group16-sha512\n" \
++    "MACs ^hmac-sha1\n"
++
+ #define LIBSSH_TEST_PUBKEYTYPES_STRING \
+     "PubkeyAcceptedKeyTypes "PUBKEYACCEPTEDTYPES"\n"
+ 
+@@ -238,6 +262,9 @@ static int setup_config_files(void **state)
+     unlink(LIBSSH_TESTCONFIG10);
+     unlink(LIBSSH_TESTCONFIG11);
+     unlink(LIBSSH_TESTCONFIG12);
++    unlink(LIBSSH_TESTCONFIG14);
++    unlink(LIBSSH_TESTCONFIG15);
++    unlink(LIBSSH_TESTCONFIG16);
+     unlink(LIBSSH_TEST_PUBKEYTYPES);
+     unlink(LIBSSH_TEST_PUBKEYALGORITHMS);
+     unlink(LIBSSH_TEST_NONEWLINEEND);
+@@ -285,6 +312,14 @@ static int setup_config_files(void **state)
+     torture_write_file(LIBSSH_TESTCONFIG12,
+                        LIBSSH_TESTCONFIG_STRING12);
+ 
++    /* +,-,^ feature */
++    torture_write_file(LIBSSH_TESTCONFIG14,
++                       LIBSSH_TESTCONFIG_STRING14);
++    torture_write_file(LIBSSH_TESTCONFIG15,
++                       LIBSSH_TESTCONFIG_STRING15);
++    torture_write_file(LIBSSH_TESTCONFIG16,
++                       LIBSSH_TESTCONFIG_STRING16);
++
+     torture_write_file(LIBSSH_TEST_PUBKEYTYPES,
+                        LIBSSH_TEST_PUBKEYTYPES_STRING);
+ 
+@@ -316,6 +351,9 @@ static int teardown_config_files(void **state)
+     unlink(LIBSSH_TESTCONFIG10);
+     unlink(LIBSSH_TESTCONFIG11);
+     unlink(LIBSSH_TESTCONFIG12);
++    unlink(LIBSSH_TESTCONFIG14);
++    unlink(LIBSSH_TESTCONFIG15);
++    unlink(LIBSSH_TESTCONFIG16);
+     unlink(LIBSSH_TEST_PUBKEYTYPES);
+     unlink(LIBSSH_TEST_PUBKEYALGORITHMS);
+ 
+@@ -1267,6 +1305,349 @@ static void torture_config_rekey_string(void **state)
+     torture_config_rekey(state, NULL, LIBSSH_TESTCONFIG_STRING12);
+ }
+ 
++/**
++ * @brief Remove substring from a string
++ *
++ * @param occurrence 0 means "remove the first occurrence"
++ *                   1 means "remove the second occurrence" and so on
++ */
++static void helper_remove_substring(char *s, const char *subs, int occurrence) {
++    char *p;
++    /* remove the substring from the defaults */
++    p = strstr(s, subs);
++    assert_non_null(p);
++    /* look for second occurrence */
++    for (int i = 0; i < occurrence; i++) {
++        p = strstr(p + 1, subs);
++        assert_non_null(p);
++    }
++    memmove(p, p + strlen(subs), strlen(p + strlen(subs)) + 1);
++}
++
++/**
++ * @brief test that openssh style '+' feature works
++ */
++static void torture_config_plus(void **state,
++                                const char *file, const char *string)
++{
++    ssh_session session = *state;
++    const char *def_hostkeys = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    const char *fips_hostkeys = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    const char *def_ciphers = ssh_kex_get_default_methods(SSH_CRYPT_C_S);
++    const char *fips_ciphers = ssh_kex_get_fips_methods(SSH_CRYPT_C_S);
++    const char *def_kex = ssh_kex_get_default_methods(SSH_KEX);
++    const char *fips_kex = ssh_kex_get_fips_methods(SSH_KEX);
++    const char *def_mac = ssh_kex_get_default_methods(SSH_MAC_C_S);
++    const char *fips_mac = ssh_kex_get_fips_methods(SSH_MAC_C_S);
++    const char *hostkeys_added = ",ssh-rsa";
++    const char *ciphers_added = "aes128-cbc,aes256-cbc";
++    const char *kex_added = ",diffie-hellman-group14-sha1,diffie-hellman-group1-sha1";
++    const char *mac_added = ",hmac-sha1,hmac-sha1-etm@openssh.com";
++    char *awaited = NULL;
++    int rc;
++
++    _parse_config(session, file, string, SSH_OK);
++
++    /* check hostkeys */
++    if (ssh_fips_mode()) {
++        /* ssh-rsa is disabled in fips */
++        assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS], fips_hostkeys);
++    } else {
++        awaited = calloc(strlen(def_hostkeys) + strlen(hostkeys_added) + 1, 1);
++        rc = snprintf(awaited, strlen(def_hostkeys) + strlen(hostkeys_added) + 1,
++                      "%s%s", def_hostkeys, hostkeys_added);
++        assert_int_equal(rc, strlen(def_hostkeys) + strlen(hostkeys_added));
++
++        assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS], awaited);
++        free(awaited);
++    }
++
++    /* check ciphers */
++    if (ssh_fips_mode()) {
++        /* already all supported is in the list */
++        assert_string_equal(session->opts.wanted_methods[SSH_CRYPT_C_S], fips_ciphers);
++    } else {
++        awaited = calloc(strlen(def_ciphers) + strlen(ciphers_added) + 1, 1);
++        rc = snprintf(awaited, strlen(def_ciphers) + strlen(ciphers_added) + 1,
++                      "%s%s", def_ciphers, ciphers_added);
++        assert_int_equal(rc, strlen(def_ciphers) + strlen(ciphers_added));
++        assert_string_equal(session->opts.wanted_methods[SSH_CRYPT_C_S], awaited);
++        free(awaited);
++    }
++
++    /* check kex */
++    if (ssh_fips_mode()) {
++        /* sha1 is disabled in fips */
++        assert_string_equal(session->opts.wanted_methods[SSH_KEX], fips_kex);
++    } else {
++        awaited = calloc(strlen(def_kex) + strlen(kex_added) + 1, 1);
++        rc = snprintf(awaited, strlen(def_kex) + strlen(kex_added) + 1,
++                      "%s%s", def_kex, kex_added);
++        assert_int_equal(rc, strlen(def_kex) + strlen(kex_added));
++        assert_string_equal(session->opts.wanted_methods[SSH_KEX], awaited);
++        free(awaited);
++    }
++
++    /* check mac */
++    if (ssh_fips_mode()) {
++        /* the added algos are already in the fips_methods */
++        assert_string_equal(session->opts.wanted_methods[SSH_MAC_C_S], fips_mac);
++    } else {
++        awaited = calloc(strlen(def_mac) + strlen(mac_added) + 1, 1);
++        rc = snprintf(awaited, strlen(def_mac) + strlen(mac_added) + 1,
++                      "%s%s", def_mac, mac_added);
++        assert_int_equal(rc, strlen(def_mac) + strlen(mac_added));
++        assert_string_equal(session->opts.wanted_methods[SSH_MAC_C_S], awaited);
++        free(awaited);
++    }
++}
++
++/**
++ * @brief test that openssh style '+' feature works from file
++ */
++static void torture_config_plus_file(void **state)
++{
++    torture_config_plus(state, LIBSSH_TESTCONFIG14, NULL);
++}
++
++/**
++ * @brief test that openssh style '+' feature works from string
++ */
++static void torture_config_plus_string(void **state)
++{
++    torture_config_plus(state, NULL, LIBSSH_TESTCONFIG_STRING14);
++}
++
++/**
++ * @brief test that openssh style '-' feature works from string
++ */
++static void torture_config_minus(void **state,
++                                 const char *file, const char *string)
++{
++    ssh_session session = *state;
++    const char *def_hostkeys = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    const char *fips_hostkeys = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    const char *def_ciphers = ssh_kex_get_default_methods(SSH_CRYPT_C_S);
++    const char *fips_ciphers = ssh_kex_get_fips_methods(SSH_CRYPT_C_S);
++    const char *def_kex = ssh_kex_get_default_methods(SSH_KEX);
++    const char *fips_kex = ssh_kex_get_fips_methods(SSH_KEX);
++    const char *def_mac = ssh_kex_get_default_methods(SSH_MAC_C_S);
++    const char *fips_mac = ssh_kex_get_fips_methods(SSH_MAC_C_S);
++    const char *hostkeys_removed = ",rsa-sha2-512,rsa-sha2-256";
++    const char *ciphers_removed = ",aes256-ctr";
++    const char *kex_removed = ",diffie-hellman-group18-sha512,diffie-hellman-group16-sha512";
++    const char *fips_kex_removed = ",diffie-hellman-group16-sha512,diffie-hellman-group18-sha512";
++    const char *mac_removed = "hmac-sha2-256-etm@openssh.com,";
++    char *awaited = NULL;
++    int rc;
++
++    _parse_config(session, file, string, SSH_OK);
++
++    /* check hostkeys */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(fips_hostkeys) + 1, 1);
++        rc = snprintf(awaited, strlen(fips_hostkeys) + 1, "%s", fips_hostkeys);
++        assert_int_equal(rc, strlen(fips_hostkeys));
++    } else {
++        awaited = calloc(strlen(def_hostkeys) + 1, 1);
++        rc = snprintf(awaited, strlen(def_hostkeys) + 1, "%s", def_hostkeys);
++        assert_int_equal(rc, strlen(def_hostkeys));
++    }
++    /* remove the substring from the defaults */
++    helper_remove_substring(awaited, hostkeys_removed, 0);
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS], awaited);
++    free(awaited);
++
++    /* check ciphers */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(fips_ciphers) + 1, 1);
++        rc = snprintf(awaited, strlen(fips_ciphers) + 1, "%s", fips_ciphers);
++        assert_int_equal(rc, strlen(fips_ciphers));
++    } else {
++        awaited = calloc(strlen(def_ciphers) + 1, 1);
++        rc = snprintf(awaited, strlen(def_ciphers) + 1, "%s", def_ciphers);
++        assert_int_equal(rc, strlen(def_ciphers));
++        /* remove the comma at the end of the list */
++        awaited[strlen(awaited) - 1] = '\0';
++    }
++    /* remove the substring from the defaults */
++    helper_remove_substring(awaited, ciphers_removed, 0);
++    assert_string_equal(session->opts.wanted_methods[SSH_CRYPT_C_S], awaited);
++    free(awaited);
++
++    /* check kex */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(fips_kex) + 1, 1);
++        rc = snprintf(awaited, strlen(fips_kex) + 1, "%s", fips_kex);
++        assert_int_equal(rc, strlen(fips_kex));
++        /* remove the substring from the defaults */
++        helper_remove_substring(awaited, fips_kex_removed, 0);
++    } else {
++        awaited = calloc(strlen(def_kex) + 1, 1);
++        rc = snprintf(awaited, strlen(def_kex) + 1, "%s", def_kex);
++        assert_int_equal(rc, strlen(def_kex));
++        /* remove the substring from the defaults */
++        helper_remove_substring(awaited, kex_removed, 0);
++    }
++    assert_string_equal(session->opts.wanted_methods[SSH_KEX], awaited);
++    free(awaited);
++
++    /* check mac */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(fips_mac) + 1, 1);
++        rc = snprintf(awaited, strlen(fips_mac) + 1, "%s", fips_mac);
++        assert_int_equal(rc, strlen(fips_mac));
++    } else {
++        awaited = calloc(strlen(def_mac) + 1, 1);
++        rc = snprintf(awaited, strlen(def_mac) + 1, "%s", def_mac);
++        assert_int_equal(rc, strlen(def_mac));
++    }
++    /* remove the substring from the defaults */
++    helper_remove_substring(awaited, mac_removed, 0);
++    assert_string_equal(session->opts.wanted_methods[SSH_MAC_C_S], awaited);
++    free(awaited);
++}
++
++/**
++ * @brief test that openssh style '-' feature works from file
++ */
++static void torture_config_minus_file(void **state)
++{
++    torture_config_minus(state, LIBSSH_TESTCONFIG15, NULL);
++}
++
++/**
++ * @brief test that openssh style '-' feature works from string
++ */
++static void torture_config_minus_string(void **state)
++{
++    torture_config_minus(state, NULL, LIBSSH_TESTCONFIG_STRING15);
++}
++
++/**
++ * @brief test that openssh style '^' feature works from string
++ */
++static void torture_config_caret(void **state,
++                                 const char *file, const char *string)
++{
++    ssh_session session = *state;
++    const char *def_hostkeys = ssh_kex_get_default_methods(SSH_HOSTKEYS);
++    const char *fips_hostkeys = ssh_kex_get_fips_methods(SSH_HOSTKEYS);
++    const char *def_ciphers = ssh_kex_get_default_methods(SSH_CRYPT_C_S);
++    const char *fips_ciphers = ssh_kex_get_fips_methods(SSH_CRYPT_C_S);
++    const char *def_kex = ssh_kex_get_default_methods(SSH_KEX);
++    const char *fips_kex = ssh_kex_get_fips_methods(SSH_KEX);
++    const char *def_mac = ssh_kex_get_default_methods(SSH_MAC_C_S);
++    const char *fips_mac = ssh_kex_get_fips_methods(SSH_MAC_C_S);
++    const char *hostkeys_prio = "rsa-sha2-512,rsa-sha2-256";
++    const char *ciphers_prio = "aes256-cbc,";
++    const char *kex_prio = "diffie-hellman-group18-sha512,diffie-hellman-group16-sha512,";
++    const char *fips_kex_prio = ",diffie-hellman-group16-sha512,diffie-hellman-group18-sha512";
++    const char *mac_prio = "hmac-sha1,";
++    char *awaited = NULL;
++    int rc;
++
++    _parse_config(session, file, string, SSH_OK);
++
++    /* check hostkeys */
++    /* +2 for the added comma and the \0 */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(hostkeys_prio) + strlen(fips_hostkeys) + 2, 1);
++        rc = snprintf(awaited, strlen(hostkeys_prio) + strlen(fips_hostkeys) + 2,
++                      "%s,%s", hostkeys_prio, fips_hostkeys);
++        assert_int_equal(rc, strlen(hostkeys_prio) + strlen(fips_hostkeys) + 1);
++    } else {
++        awaited = calloc(strlen(def_hostkeys) + strlen(hostkeys_prio) + 2, 1);
++        rc = snprintf(awaited, strlen(hostkeys_prio) + strlen(def_hostkeys) + 2,
++                      "%s,%s", hostkeys_prio, def_hostkeys);
++        assert_int_equal(rc, strlen(hostkeys_prio) + strlen(def_hostkeys) + 1);
++    }
++
++    /* remove the substring from the defaults */
++    helper_remove_substring(awaited, hostkeys_prio, 1);
++    /* remove the comma at the end of the list */
++    awaited[strlen(awaited) - 1] = '\0';
++
++    assert_string_equal(session->opts.wanted_methods[SSH_HOSTKEYS], awaited);
++    free(awaited);
++
++    /* check ciphers */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(ciphers_prio) + strlen(fips_ciphers) + 1, 1);
++        rc = snprintf(awaited, strlen(ciphers_prio) + strlen(fips_ciphers) + 1,
++                      "%s%s", ciphers_prio, fips_ciphers);
++        assert_int_equal(rc, strlen(ciphers_prio) + strlen(fips_ciphers));
++        /* remove the substring from the defaults */
++        helper_remove_substring(awaited, ciphers_prio, 1);
++    } else {
++        /* + 2 because the '\0' and the comma */
++        awaited = calloc(strlen(ciphers_prio) + strlen(def_ciphers) + 1, 1);
++        rc = snprintf(awaited, strlen(ciphers_prio) + strlen(def_ciphers) + 1,
++                      "%s%s", ciphers_prio, def_ciphers);
++        assert_int_equal(rc, strlen(ciphers_prio) + strlen(def_ciphers));
++        /* remove the comma at the end of the list */
++        awaited[strlen(awaited) - 1] = '\0';
++    }
++
++    assert_string_equal(session->opts.wanted_methods[SSH_CRYPT_C_S], awaited);
++    free(awaited);
++
++    /* check kex */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(kex_prio) + strlen(fips_kex) + 1, 1);
++        rc = snprintf(awaited, strlen(kex_prio) + strlen(fips_kex) + 1,
++                      "%s%s", kex_prio, fips_kex);
++        assert_int_equal(rc, strlen(kex_prio) + strlen(fips_kex));
++        /* remove the substring from the defaults */
++        /* the default list has different order of these two algos than the fips
++         * and because here is a braindead string substitution being done,
++         * change the order and remove the first occurrence of it */
++        helper_remove_substring(awaited, fips_kex_prio, 0);
++    } else {
++        awaited = calloc(strlen(kex_prio) + strlen(def_kex) + 1, 1);
++        rc = snprintf(awaited, strlen(kex_prio) + strlen(def_kex) + 1,
++                      "%s%s", kex_prio, def_kex);
++        assert_int_equal(rc, strlen(def_kex) + strlen(kex_prio));
++        /* remove the substring from the defaults */
++        helper_remove_substring(awaited, kex_prio, 1);
++    }
++
++    assert_string_equal(session->opts.wanted_methods[SSH_KEX], awaited);
++    free(awaited);
++
++    /* check mac */
++    if (ssh_fips_mode()) {
++        awaited = calloc(strlen(mac_prio) + strlen(fips_mac) + 1, 1);
++        rc = snprintf(awaited, strlen(mac_prio) + strlen(fips_mac) + 1, "%s%s", mac_prio, fips_mac);
++        assert_int_equal(rc, strlen(mac_prio) + strlen(fips_mac));
++        /* the fips list contains hmac-sha1 algo */
++        helper_remove_substring(awaited, mac_prio, 1);
++    } else {
++        awaited = calloc(strlen(mac_prio) + strlen(def_mac) + 1, 1);
++        /* the mac is not in default; it is added to the list */
++        rc = snprintf(awaited, strlen(mac_prio) + strlen(def_mac) + 1, "%s%s", mac_prio, def_mac);
++        assert_int_equal(rc, strlen(mac_prio) + strlen(def_mac));
++    }
++    assert_string_equal(session->opts.wanted_methods[SSH_MAC_C_S], awaited);
++    free(awaited);
++}
++
++/**
++ * @brief test that openssh style '^' feature works from file
++ */
++static void torture_config_caret_file(void **state)
++{
++    torture_config_caret(state, LIBSSH_TESTCONFIG16, NULL);
++}
++
++/**
++ * @brief test that openssh style '^' feature works from string
++ */
++static void torture_config_caret_string(void **state)
++{
++    torture_config_caret(state, NULL, LIBSSH_TESTCONFIG_STRING16);
++}
++
+ /**
+  * @brief test PubkeyAcceptedKeyTypes helper function
+  */
+@@ -1848,6 +2229,18 @@ int torture_run_tests(void)
+                                         setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_config_rekey_string,
+                                         setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_plus_file,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_plus_string,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_minus_file,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_minus_string,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_caret_file,
++                                        setup, teardown),
++        cmocka_unit_test_setup_teardown(torture_config_caret_string,
++                                        setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_config_pubkeytypes_file,
+                                         setup, teardown),
+         cmocka_unit_test_setup_teardown(torture_config_pubkeytypes_string,
+-- 
+2.38.1
+
