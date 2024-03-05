@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.9.6
-Release:        10%{?dist}
+Release:        13%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -17,6 +17,7 @@ Patch2:         null_dereference_rekey.patch
 Patch3:         auth_bypass.patch
 Patch4:         fix_tests.patch
 Patch5:         covscan23.patch
+Patch6:         CVE-2023-48795.patch
 
 BuildRequires:  cmake
 BuildRequires:  doxygen
@@ -145,24 +146,37 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
-* Mon May 15 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-10
+* Wed Jan 24 2024 Sahana Prasad <sahana@redhat.com> - 0.9.6-13
+- Fix CVE-2023-48795: Prefix truncation attack
+  on Binary Packet Protocol (BPP)
+- Resolves: RHEL-19311
+
+* Mon May 15 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-12
 - Fix loglevel regression
-- Related: rhbz#2189968, rhbz#2189741
+- Related: rhbz#2182251, rhbz#2189742
+
+* Thu May 04 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-11
+- .fmf/version is needed to run the tests
+- Related: rhbz#2182251, rhbz#2189742
+
+* Wed May 03 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-10
+- Add missing ci.fmf file
+- Related: rhbz#2182251, rhbz#2189742
 
 * Wed May 03 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-9
-- Fix covscan issue found at gating
-- Related: rhbz#2189968, rhbz#2189741
+- Fix covscan errors found at gating
+- Related: rhbz#2182251, rhbz#2189742
 
 * Tue May 02 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-8
 - Backport test fixing commits to make the build pass
-- Relates: rhbz#2189968, rhbz#2189741
+- Related: rhbz#2182251, rhbz#2189742
 
-* Tue Apr 25 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-7
-- Fix NULL dereference during rekeying with algorithm guessing 
-  GHSL-2023-032 / CVE-2023-1667 
+* Thu Apr 27 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-7
+- Fix NULL dereference during rekeying with algorithm guessing
+  GHSL-2023-032 / CVE-2023-1667
 - Fix possible authentication bypass
   GHSL 2023-085 / CVE-2023-2283
-- Resolves: rhbz#2189968, rhbz#2189741
+- Resolves: rhbz#2182251, rhbz#2189742
 
 * Fri Jan 06 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-6
 - Enable client and server testing build time
