@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.9.6
-Release:        13%{?dist}
+Release:        14%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -18,6 +18,8 @@ Patch3:         auth_bypass.patch
 Patch4:         fix_tests.patch
 Patch5:         covscan23.patch
 Patch6:         CVE-2023-48795.patch
+Patch7:         CVE-2023-6004.patch
+Patch8:         CVE-2023-6918.patch
 
 BuildRequires:  cmake
 BuildRequires:  doxygen
@@ -146,10 +148,15 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
-* Wed Jan 24 2024 Sahana Prasad <sahana@redhat.com> - 0.9.6-13
-- Fix CVE-2023-48795: Prefix truncation attack
-  on Binary Packet Protocol (BPP)
-- Resolves: RHEL-19311
+* Mon Feb 26 2024 Sahana Prasad <sahana@redhat.com> - 0.9.6-14
+- Fix CVE-2023-48795 Prefix truncation attack on Binary Packet Protocol (BPP)
+- Fix CVE-2023-6918 Missing checks for return values for digests
+- Fix CVE-2023-6004 ProxyCommand/ProxyJump features allow injection
+  of malicious code through hostname
+- Note: version is bumped from 12 to 14 directly, as the z-stream
+  version in 8.9 also has 13. So bumping it to 14, will prevent
+  upgrade conflicts.
+- Resolves:RHEL-19690, RHEL-17244, RHEL-19312
 
 * Mon May 15 2023 Norbert Pocs <npocs@redhat.com> - 0.9.6-12
 - Fix loglevel regression
