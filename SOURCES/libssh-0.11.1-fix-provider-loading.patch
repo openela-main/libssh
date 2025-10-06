@@ -1,0 +1,54 @@
+diff -up libssh-0.11.1/tests/client/torture_auth_pkcs11.c.tmp libssh-0.11.1/tests/client/torture_auth_pkcs11.c
+--- libssh-0.11.1/tests/client/torture_auth_pkcs11.c.tmp	2024-10-25 11:58:50.341126170 +0200
++++ libssh-0.11.1/tests/client/torture_auth_pkcs11.c	2024-10-25 12:11:01.766453259 +0200
+@@ -240,6 +240,14 @@ int torture_run_tests(void) {
+                                         session_teardown),
+     };
+ 
++    /* Do not use system openssl.cnf for the pkcs11 uri tests.
++     * It can load a pkcs11 provider too early before we will set up environment
++     * variables that are needed for the pkcs11 provider to access correct
++     * tokens, causing unexpected failures.
++     * Make sure this comes before ssh_init(), which initializes OpenSSL!
++     */
++    setenv("OPENSSL_CONF", "/dev/null", 1);
++
+     ssh_init();
+     torture_filter_tests(tests);
+     rc = cmocka_run_group_tests(tests, sshd_setup, sshd_teardown);
+diff -up libssh-0.11.1/tests/unittests/torture_pki_ecdsa_uri.c.tmp libssh-0.11.1/tests/unittests/torture_pki_ecdsa_uri.c
+--- libssh-0.11.1/tests/unittests/torture_pki_ecdsa_uri.c.tmp	2024-10-25 11:59:22.964367137 +0200
++++ libssh-0.11.1/tests/unittests/torture_pki_ecdsa_uri.c	2024-10-25 12:12:51.473625481 +0200
+@@ -563,6 +563,14 @@ int torture_run_tests(void) {
+     ssh_session session = ssh_new();
+     int verbosity = SSH_LOG_FUNCTIONS;
+ 
++    /* Do not use system openssl.cnf for the pkcs11 uri tests.
++     * It can load a pkcs11 provider too early before we will set up environment
++     * variables that are needed for the pkcs11 provider to access correct
++     * tokens, causing unexpected failures.
++     * Make sure this comes before ssh_init(), which initializes OpenSSL!
++     */
++    setenv("OPENSSL_CONF", "/dev/null", 1);
++
+     ssh_init();
+     ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
+ 
+diff -up libssh-0.11.1/tests/unittests/torture_pki_rsa_uri.c.tmp libssh-0.11.1/tests/unittests/torture_pki_rsa_uri.c
+--- libssh-0.11.1/tests/unittests/torture_pki_rsa_uri.c.tmp	2024-10-25 11:59:49.241336178 +0200
++++ libssh-0.11.1/tests/unittests/torture_pki_rsa_uri.c	2024-10-25 12:12:10.985614709 +0200
+@@ -285,6 +285,14 @@ torture_run_tests(void)
+     ssh_session session = ssh_new();
+     int verbosity = SSH_LOG_FUNCTIONS;
+ 
++    /* Do not use system openssl.cnf for the pkcs11 uri tests.
++     * It can load a pkcs11 provider too early before we will set up environment
++     * variables that are needed for the pkcs11 provider to access correct
++     * tokens, causing unexpected failures.
++     * Make sure this comes before ssh_init(), which initializes OpenSSL!
++     */
++    setenv("OPENSSL_CONF", "/dev/null", 1);
++
+     ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
+     ssh_init();
+ 
