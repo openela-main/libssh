@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.11.1
-Release:        1%{?dist}
+Release:        4%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPL-2.1-or-later
 URL:            http://www.libssh.org
@@ -11,8 +11,11 @@ Source2:        https://www.libssh.org/files/0x03D5DF8CFDD3E8E7_libssh_libssh_or
 Source3:        libssh_client.config
 Source4:        libssh_server.config
 # Don't use global openssl.cnf for PKCS#11 URI Tests
-# https://gitlab.com/libssh/libssh-mirror/-/merge_requests/543
+# https://gitlab.com/libssh/libssh-mirror/-/commit/46d74176
 Patch1:         libssh-0.11.1-fix-provider-loading.patch
+# Fix possible buffer overrun in the SFTP server
+# https://gitlab.com/libssh/libssh-mirror/-/commit/ae8881df
+Patch2:         libssh-0.11.1-CVE-2025-5318.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -141,6 +144,17 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-4
+- Rebuild due to broken build auto-tagging
+
+* Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-3
+- Fix CVE-2025-5318
+  Resolves: RHEL-111720
+
+* Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 0.11.1-2
+- Bump release for October 2024 mass rebuild:
+  Resolves: RHEL-64018
+
 * Wed Oct 23 2024 Sahana Prasad <sahana@redhat.com> - 0.11.1-1
 - Rebase to new upstream version 0.11.1
 - Resolves: RHEL-64319
