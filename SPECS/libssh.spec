@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.9.6
-Release:        14%{?dist}
+Release:        15%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -20,6 +20,7 @@ Patch5:         covscan23.patch
 Patch6:         CVE-2023-48795.patch
 Patch7:         CVE-2023-6004.patch
 Patch8:         CVE-2023-6918.patch
+Patch9:         CVE-2025-5318.patch
 
 BuildRequires:  cmake
 BuildRequires:  doxygen
@@ -148,6 +149,10 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.9.6-15
+- Fix CVE-2025-5318
+  Resolves: RHEL-111724
+
 * Mon Feb 26 2024 Sahana Prasad <sahana@redhat.com> - 0.9.6-14
 - Fix CVE-2023-48795 Prefix truncation attack on Binary Packet Protocol (BPP)
 - Fix CVE-2023-6918 Missing checks for return values for digests
