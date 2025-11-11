@@ -148,12 +148,12 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
-* Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-15
-- Rebuild due to broken build auto-tagging
+* Wed Oct 01 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-15
+- Bump spec to make the 9.7 NVR higher than the 9.6 one
 
 * Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-14
 - Fix CVE-2025-5318
-  Resolves: RHEL-111730
+  Resolves: RHEL-111732
 
 * Mon Feb 19 2024 Sahana Prasad <sahana@redhat.com> - 0.10.4-13
 - Bump up the version so that the version in 9.3 is lower.
