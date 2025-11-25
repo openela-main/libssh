@@ -149,7 +149,7 @@ popd
 
 * Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-3
 - Fix CVE-2025-5318
-  Resolves: RHEL-111720
+  Resolves: RHEL-111719
 
 * Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 0.11.1-2
 - Bump release for October 2024 mass rebuild:
