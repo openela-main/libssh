@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.11.1
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPL-2.1-or-later
 URL:            http://www.libssh.org
@@ -16,6 +16,9 @@ Patch1:         libssh-0.11.1-fix-provider-loading.patch
 # Fix possible buffer overrun in the SFTP server
 # https://gitlab.com/libssh/libssh-mirror/-/commit/ae8881df
 Patch2:         libssh-0.11.1-CVE-2025-5318.patch
+# libcrypto: Correctly detect failures of chacha initialization
+# https://gitlab.com/libssh/libssh-mirror/-/commit/bc4804aa
+Patch3:         libssh-0.11.1-CVE-2025-5987.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -144,6 +147,10 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Thu Dec 11 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-5
+- Fix CVE-2025-5987
+  Resolves: RHEL-130040
+
 * Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-4
 - Rebuild due to broken build auto-tagging
 
