@@ -1,0 +1,47 @@
+From f2deda1b970ff3ab469e0838114c93a3d08051d8 Mon Sep 17 00:00:00 2001
+From: Jakub Jelen <jjelen@redhat.com>
+Date: Fri, 9 Aug 2024 11:30:15 +0200
+Subject: [PATCH] test: Workaround the new OpenSSH failure rate limiting
+
+The new OpenSSH rate limits the failed authentication attempts per source
+address and drops connection when the amount is reached, which is happening
+in our testsuite.
+
+By whitelisting the IP address of the client on the socket wrapper,
+this allows the tests to pass.
+
+https://man.openbsd.org/sshd_config.5#PerSourcePenaltyExemptList
+
+Signed-off-by: Jakub Jelen <jjelen@redhat.com>
+Reviewed-by: Andreas Schneider <asn@cryptomilk.org>
+---
+ tests/torture.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tests/torture.c b/tests/torture.c
+index f5a6bcc7..0590ee3d 100644
+--- a/tests/torture.c
++++ b/tests/torture.c
+@@ -771,6 +771,9 @@ static void torture_setup_create_sshd_config(void **state, bool pam)
+              "HostKeyAlgorithms " OPENSSH_KEYS "\n"
+ #if OPENSSH_VERSION_MAJOR == 8 && OPENSSH_VERSION_MINOR >= 2
+              "CASignatureAlgorithms " OPENSSH_KEYS "\n"
++#endif
++#if (OPENSSH_VERSION_MAJOR == 9 && OPENSSH_VERSION_MINOR >= 8) || OPENSSH_VERSION_MAJOR > 9
++             "PerSourcePenaltyExemptList 127.0.0.21\n"
+ #endif
+              "Ciphers " OPENSSH_CIPHERS "\n"
+              "KexAlgorithms " OPENSSH_KEX "\n"
+@@ -801,6 +804,9 @@ static void torture_setup_create_sshd_config(void **state, bool pam)
+              "%s\n" /* Here comes UsePam */
+              "%s" /* The space for test-specific options */
+              "\n"
++#if (OPENSSH_VERSION_MAJOR == 9 && OPENSSH_VERSION_MINOR >= 8) || OPENSSH_VERSION_MAJOR > 9
++             "PerSourcePenaltyExemptList 127.0.0.21\n"
++#endif
+              "Ciphers "
+                 "aes256-gcm@openssh.com,aes256-ctr,aes256-cbc,"
+                 "aes128-gcm@openssh.com,aes128-ctr,aes128-cbc"
+-- 
+2.51.0
+

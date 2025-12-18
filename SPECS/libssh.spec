@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.10.4
-Release:        15%{?dist}
+Release:        17%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -56,6 +56,8 @@ Patch14: CVE-2023-48795.patch
 Patch15: CVE-2023-6918.patch
 Patch16: escape-brackets-in-proxycommand.patch
 Patch17: CVE-2025-5318.patch
+Patch18: CVE-2025-5987.patch
+Patch19: workaround-sshd-failure-rate-limiting.patch
 
 %description
 The ssh library was designed to be used by programmers needing a working SSH
@@ -148,6 +150,15 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Fri Dec 12 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-17
+- Bump spec to resolve build tagging issues
+
+* Thu Dec 11 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-16
+- Fix CVE-2025-5987
+  Resolves: RHEL-130051
+- Workaround sshd failure rate limiting in tests
+  Resolves: RHEL-135506
+
 * Wed Oct 01 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-15
 - Bump spec to make the 9.7 NVR higher than the 9.6 one
 
