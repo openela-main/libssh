@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.10.4
-Release:        17%{?dist}
+Release:        18%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -58,6 +58,16 @@ Patch16: escape-brackets-in-proxycommand.patch
 Patch17: CVE-2025-5318.patch
 Patch18: CVE-2025-5987.patch
 Patch19: workaround-sshd-failure-rate-limiting.patch
+Patch20: CVE-2025-4877.patch
+Patch21: CVE-2025-4878.patch
+Patch22: CVE-2025-5351.patch
+Patch23: CVE-2025-8114.patch
+Patch24: CVE-2025-8277.patch
+Patch25: CVE-2026-0964.patch
+Patch26: CVE-2026-0965.patch
+Patch27: CVE-2026-0966.patch
+Patch28: CVE-2026-0967.patch
+Patch29: CVE-2026-0968.patch
 
 %description
 The ssh library was designed to be used by programmers needing a working SSH
@@ -150,6 +160,19 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Fri Feb 13 2026 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-18
+- Resolves: RHEL-150661
+- Resolves: CVE-2025-4877
+- Resolves: CVE-2025-4878
+- Resolves: CVE-2025-5351
+- Resolves: CVE-2025-8114
+- Resolves: CVE-2025-8277
+- Resolves: CVE-2026-0964
+- Resolves: CVE-2026-0965
+- Resolves: CVE-2026-0966
+- Resolves: CVE-2026-0967
+- Resolves: CVE-2026-0968
+
 * Fri Dec 12 2025 Pavol Žáčik <pzacik@redhat.com> - 0.10.4-17
 - Bump spec to resolve build tagging issues
 
