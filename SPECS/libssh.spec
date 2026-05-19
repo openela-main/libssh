@@ -1,24 +1,18 @@
 Name:           libssh
-Version:        0.11.1
-Release:        5%{?dist}
+Version:        0.12.0
+Release:        2%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPL-2.1-or-later
 URL:            http://www.libssh.org
 
-Source0:        https://www.libssh.org/files/0.11/%{name}-%{version}.tar.xz
-Source1:        https://www.libssh.org/files/0.11/%{name}-%{version}.tar.xz.asc
+Source0:        https://www.libssh.org/files/0.12/%{name}-%{version}.tar.xz
+Source1:        https://www.libssh.org/files/0.12/%{name}-%{version}.tar.xz.asc
 Source2:        https://www.libssh.org/files/0x03D5DF8CFDD3E8E7_libssh_libssh_org_gpgkey.asc#/%{name}.keyring
 Source3:        libssh_client.config
 Source4:        libssh_server.config
-# Don't use global openssl.cnf for PKCS#11 URI Tests
-# https://gitlab.com/libssh/libssh-mirror/-/commit/46d74176
-Patch1:         libssh-0.11.1-fix-provider-loading.patch
-# Fix possible buffer overrun in the SFTP server
-# https://gitlab.com/libssh/libssh-mirror/-/commit/ae8881df
-Patch2:         libssh-0.11.1-CVE-2025-5318.patch
-# libcrypto: Correctly detect failures of chacha initialization
-# https://gitlab.com/libssh/libssh-mirror/-/commit/bc4804aa
-Patch3:         libssh-0.11.1-CVE-2025-5987.patch
+
+# https://gitlab.com/libssh/libssh-mirror/-/merge_requests/742
+Patch1:         Update-recently-added-logging-to-be-less-verbose.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -41,13 +35,17 @@ BuildRequires:  nmap-ncat
 BuildRequires:  pkcs11-provider
 BuildRequires:  p11-kit-devel
 BuildRequires:  p11-kit-server
+BuildRequires:  p11-kit-client
 BuildRequires:  opensc
 BuildRequires:  softhsm
 BuildRequires:  gnutls-utils
+BuildRequires:  libfido2-devel
+BuildRequires:  openssh-sk-dummy
+BuildRequires:  hostname
 
 Requires:       %{name}-config = %{version}-%{release}
 
-Recommends:     crypto-policies
+Requires:       crypto-policies
 
 %ifarch aarch64 ppc64 ppc64le s390x x86_64 riscv64
 Provides: libssh_threads.so.4()(64bit)
@@ -92,6 +90,7 @@ The %{name}-config package provides the default configuration files for %{name}.
     -DGSSAPI_TESTING=ON \
     -DWITH_PKCS11_URI=ON \
     -DWITH_PKCS11_PROVIDER=ON \
+    -DWITH_FIDO2=ON \
     -DGLOBAL_CLIENT_CONFIG="%{_sysconfdir}/libssh/libssh_client.config" \
     -DGLOBAL_BIND_CONFIG="%{_sysconfdir}/libssh/libssh_server.config"
 
@@ -147,16 +146,20 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
-* Thu Dec 11 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-5
-- Fix CVE-2025-5987
-  Resolves: RHEL-130040
+* Thu Feb 19 2026 Pavol Žáčik <pzacik@redhat.com> - 0.12.0-2
+- Fix the verbosity of some new logs added in 0.12.0
+  Resolves: RHEL-93748
 
-* Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-4
-- Rebuild due to broken build auto-tagging
+* Tue Feb 10 2026 Pavol Žáčik <pzacik@redhat.com> - 0.12.0-1
+- Rebase to 0.12.0
+  Resolves: RHEL-133421, RHEL-70825, RHEL-130042
+- Add a Requires for crypto-policies instead of a Recommends
+  Resolves: RHEL-139045
 
 * Tue Sep 30 2025 Pavol Žáčik <pzacik@redhat.com> - 0.11.1-3
 - Fix CVE-2025-5318
-  Resolves: RHEL-111719
+  Resolves: RHEL-111721
+- Add BuildRequires for p11-kit-client
 
 * Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 0.11.1-2
 - Bump release for October 2024 mass rebuild:

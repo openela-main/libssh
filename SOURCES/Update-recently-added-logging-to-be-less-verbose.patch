@@ -1,0 +1,137 @@
+From 3f99712641a584c5390e0d5f67ab23ff2451f778 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pavol=20=C5=BD=C3=A1=C4=8Dik?= <pzacik@redhat.com>
+Date: Thu, 19 Feb 2026 10:03:28 +0100
+Subject: [PATCH] Update recently added logging to be less verbose
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In 20d9642c and parent commits, log levels were
+recategorized to be less verbose when using the
+level INFO and lower. These levels should not
+print any information redundant to the end user.
+
+This commit fixes recently added uses of logging
+that are not consistent with the abovementioned
+categorization, in particular:
+
+- logs in ssh_strict_fopen should not have
+  the RARE/WARNING level since failing to open
+  a file may not be an issue at all (e.g., when
+  trying to open the knownhosts file).
+
+- logging the username used in authentication
+  or proxyjump-related information should be done
+  at the DEBUG level, otherwise it could pollute
+  the output of, e.g., curl.
+
+Signed-off-by: Pavol Žáčik <pzacik@redhat.com>
+---
+ src/auth.c   |  2 +-
+ src/config.c |  4 +++-
+ src/misc.c   | 10 +++++-----
+ src/socket.c |  4 ++--
+ 4 files changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/src/auth.c b/src/auth.c
+index 8dae696d..1f8a08b4 100644
+--- a/src/auth.c
++++ b/src/auth.c
+@@ -1397,7 +1397,7 @@ int ssh_userauth_publickey_auto(ssh_session session,
+         return SSH_AUTH_ERROR;
+     }
+ 
+-    SSH_LOG(SSH_LOG_INFO,
++    SSH_LOG(SSH_LOG_DEBUG,
+             "Starting authentication as a user %s",
+             username ? username : session->opts.username);
+ 
+diff --git a/src/config.c b/src/config.c
+index eceaba61..12eb3a71 100644
+--- a/src/config.c
++++ b/src/config.c
+@@ -258,7 +258,9 @@ local_parse_file(ssh_session session,
+ 
+     f = ssh_strict_fopen(filename, SSH_MAX_CONFIG_FILE_SIZE);
+     if (f == NULL) {
+-        /* The underlying function logs the reasons */
++        SSH_LOG(SSH_LOG_RARE,
++                "Failed to open included configuration file %s",
++                filename);
+         return;
+     }
+ 
+diff --git a/src/misc.c b/src/misc.c
+index 0d702f7b..4b8d3616 100644
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -2454,7 +2454,7 @@ FILE *ssh_strict_fopen(const char *filename, size_t max_file_size)
+     /* open first to avoid TOCTOU */
+     fd = open(filename, O_RDONLY);
+     if (fd == -1) {
+-        SSH_LOG(SSH_LOG_RARE,
++        SSH_LOG(SSH_LOG_TRACE,
+                 "Failed to open a file %s for reading: %s",
+                 filename,
+                 ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+@@ -2464,7 +2464,7 @@ FILE *ssh_strict_fopen(const char *filename, size_t max_file_size)
+     /* Check the file is sensible for a configuration file */
+     r = fstat(fd, &sb);
+     if (r != 0) {
+-        SSH_LOG(SSH_LOG_RARE,
++        SSH_LOG(SSH_LOG_TRACE,
+                 "Failed to stat %s: %s",
+                 filename,
+                 ssh_strerror(errno, err_msg, SSH_ERRNO_MSG_MAX));
+@@ -2472,7 +2472,7 @@ FILE *ssh_strict_fopen(const char *filename, size_t max_file_size)
+         return NULL;
+     }
+     if ((sb.st_mode & S_IFMT) != S_IFREG) {
+-        SSH_LOG(SSH_LOG_RARE,
++        SSH_LOG(SSH_LOG_TRACE,
+                 "The file %s is not a regular file: skipping",
+                 filename);
+         close(fd);
+@@ -2480,7 +2480,7 @@ FILE *ssh_strict_fopen(const char *filename, size_t max_file_size)
+     }
+ 
+     if ((size_t)sb.st_size > max_file_size) {
+-        SSH_LOG(SSH_LOG_RARE,
++        SSH_LOG(SSH_LOG_TRACE,
+                 "The file %s is too large (%jd MB > %zu MB): skipping",
+                 filename,
+                 (intmax_t)sb.st_size / 1024 / 1024,
+@@ -2491,7 +2491,7 @@ FILE *ssh_strict_fopen(const char *filename, size_t max_file_size)
+ 
+     f = fdopen(fd, "r");
+     if (f == NULL) {
+-        SSH_LOG(SSH_LOG_RARE,
++        SSH_LOG(SSH_LOG_TRACE,
+                 "Failed to open a file %s for reading: %s",
+                 filename,
+                 ssh_strerror(r, err_msg, SSH_ERRNO_MSG_MAX));
+diff --git a/src/socket.c b/src/socket.c
+index 09bc71ef..7a8bf168 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -1435,7 +1435,7 @@ ssh_socket_connect_proxyjump(ssh_socket s)
+ 
+     session = s->session;
+ 
+-    SSH_LOG(SSH_LOG_INFO,
++    SSH_LOG(SSH_LOG_DEBUG,
+             "Connecting to host %s port %d user %s through ProxyJump",
+             session->opts.host,
+             session->opts.port,
+@@ -1515,7 +1515,7 @@ ssh_socket_connect_proxyjump(ssh_socket s)
+     /* transferred to the jump_thread_data */
+     jump_session = NULL;
+ 
+-    SSH_LOG(SSH_LOG_INFO,
++    SSH_LOG(SSH_LOG_DEBUG,
+             "Starting proxy thread to host %s port %d user %s, callbacks=%p",
+             jump_thread_data->next_jump->hostname,
+             jump_thread_data->next_jump->port,
+-- 
+2.53.0
+
