@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.12.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPL-2.1-or-later
 URL:            http://www.libssh.org
@@ -13,6 +13,17 @@ Source4:        libssh_server.config
 
 # https://gitlab.com/libssh/libssh-mirror/-/merge_requests/742
 Patch1:         Update-recently-added-logging-to-be-less-verbose.patch
+Patch2:         CVE-2026-59842.patch
+Patch3:         CVE-2026-59843.patch
+Patch4:         CVE-2026-59844.patch
+Patch5:         CVE-2026-59845.patch
+Patch6:         CVE-2026-59846.patch
+Patch7:         CVE-2026-59847.patch
+Patch8:         CVE-2026-59848.patch
+Patch9:         CVE-2026-59849.patch
+Patch10:        CVE-2026-59850.patch
+Patch11:        CVE-2026-59851.patch
+Patch12:        CVE-2026-15370.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc-c++
@@ -146,6 +157,20 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Wed Jul 22 2026 Pavol Žáčik <pzacik@redhat.com> - 0.12.0-3
+- Backport CVE fixes from 0.12.2
+  Resolves: RHEL-213004
+  Resolves: RHEL-213029
+  Resolves: RHEL-213032
+  Resolves: RHEL-213039
+  Resolves: RHEL-213046
+  Resolves: RHEL-213079
+  Resolves: RHEL-213112
+  Resolves: RHEL-213117
+  Resolves: RHEL-213148
+  Resolves: RHEL-213150
+  Resolves: RHEL-213175
+
 * Thu Feb 19 2026 Pavol Žáčik <pzacik@redhat.com> - 0.12.0-2
 - Fix the verbosity of some new logs added in 0.12.0
   Resolves: RHEL-93748
