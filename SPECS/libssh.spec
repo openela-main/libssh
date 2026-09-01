@@ -1,6 +1,6 @@
 Name:           libssh
 Version:        0.9.6
-Release:        16%{?dist}
+Release:        17%{?dist}
 Summary:        A library implementing the SSH protocol
 License:        LGPLv2+
 URL:            http://www.libssh.org
@@ -22,6 +22,13 @@ Patch7:         CVE-2023-6004.patch
 Patch8:         CVE-2023-6918.patch
 Patch9:         CVE-2025-5318.patch
 Patch10:        CVE-2025-5372.patch
+Patch11:        CVE-2026-59843.patch
+Patch12:        CVE-2026-59844.patch
+Patch13:        CVE-2026-59845.patch
+Patch14:        CVE-2026-59846.patch
+Patch15:        CVE-2026-59847.patch
+Patch16:        CVE-2026-59848.patch
+Patch17:        CVE-2026-59850.patch
 
 BuildRequires:  cmake
 BuildRequires:  doxygen
@@ -150,6 +157,16 @@ popd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/libssh/libssh_server.config
 
 %changelog
+* Sat Jul 25 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 0.9.6-17
+- Backport CVE patches from 0.11.5
+  Resolves: RHEL-215677
+  Resolves: RHEL-215674
+  Resolves: RHEL-215680
+  Resolves: RHEL-215678
+  Resolves: RHEL-215675
+  Resolves: RHEL-215676
+  Resolves: RHEL-215679
+
 * Wed Nov 05 2025 Pavol Žáčik <pzacik@redhat.com> - 0.9.6-16
 - Fix CVE-2025-5372
   Resolves: RHEL-121232
